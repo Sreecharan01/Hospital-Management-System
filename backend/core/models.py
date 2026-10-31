@@ -213,6 +213,9 @@ class Appointment(models.Model):
         related_name="appointments",
     )
     date = models.DateField()
+    appointment_time = models.TimeField(
+        help_text="Specific 10-minute time slot within the availability window.",
+    )
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -227,7 +230,7 @@ class Appointment(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("slot", "date")
+        unique_together = ("slot", "date", "appointment_time")
         ordering = ["-date", "-created_at"]
 
     def __str__(self):

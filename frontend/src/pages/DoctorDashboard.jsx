@@ -273,7 +273,7 @@ export default function DoctorDashboard() {
                             </span>
                             <span className="flex items-center gap-1">
                               <Clock className="w-3.5 h-3.5" />
-                              {appt.slot?.start_time?.slice(0, 5)}
+                              {appt.appointment_time?.slice(0, 5) || appt.slot?.start_time?.slice(0, 5)}
                             </span>
                           </div>
                           {appt.reason && (
@@ -380,7 +380,7 @@ export default function DoctorDashboard() {
 
             <div className="text-sm text-gray-500 mb-4 p-3 bg-gray-50 rounded-xl">
               Appointment on <strong>{recordModal.date}</strong> at{' '}
-              <strong>{recordModal.slot?.start_time?.slice(0, 5)}</strong>
+              <strong>{recordModal.appointment_time?.slice(0, 5) || recordModal.slot?.start_time?.slice(0, 5)}</strong>
             </div>
 
             <div className="space-y-4">

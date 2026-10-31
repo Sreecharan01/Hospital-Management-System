@@ -19,8 +19,10 @@ export default function MyAppointments() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('upcoming');
   const [rescheduleModal, setRescheduleModal] = useState(null);
-  const [rescheduleData, setRescheduleData] = useState({ slot: '', date: '' });
+  const [rescheduleData, setRescheduleData] = useState({ slot: '', date: '', appointment_time: '' });
   const [availableSlots, setAvailableSlots] = useState([]);
+  const [rescheduleTimeSlots, setRescheduleTimeSlots] = useState([]);
+  const [loadingTimes, setLoadingTimes] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
 
   const fetchAppointments = async () => {
@@ -63,7 +65,8 @@ export default function MyAppointments() {
 
   const openReschedule = async (appt) => {
     setRescheduleModal(appt);
-    setRescheduleData({ slot: '', date: '' });
+    setRescheduleData({ slot: '', date: '', appointment_time: '' });
+    setRescheduleTimeSlots([]);
     try {
       const doctorId = appt.slot?.doctor?.id;
       if (doctorId) {
@@ -75,9 +78,32 @@ export default function MyAppointments() {
     }
   };
 
-  const handleReschedule = async () => {
+  // Fetch available times when reschedule slot + date change
+  useEffect(() => {
     if (!rescheduleData.slot || !rescheduleData.date) {
-      toast.error('Select a slot and date');
+      setRescheduleTimeSlots([]);
+      return;
+    }
+    const fetchTimes = async () => {
+      setLoadingTimes(true);
+      setRescheduleData((prev) => ({ ...prev, appointment_time: '' }));
+      try {
+        const { data } = await api.get('/appointments/available-times/', {
+          params: { slot: rescheduleData.slot, date: rescheduleData.date },
+        });
+        setRescheduleTimeSlots(data.times || []);
+      } catch {
+        setRescheduleTimeSlots([]);
+      } finally {
+        setLoadingTimes(false);
+      }
+    };
+    fetchTimes();
+  }, [rescheduleData.slot, rescheduleData.date]);
+
+  const handleReschedule = async () => {
+    if (!rescheduleData.slot || !rescheduleData.date || !rescheduleData.appointment_time) {
+      toast.error('Select a slot, date, and time');
       return;
     }
     setActionLoading(rescheduleModal.id);
@@ -85,6 +111,7 @@ export default function MyAppointments() {
       await api.post(`/appointments/${rescheduleModal.id}/reschedule/`, {
         slot: rescheduleData.slot,
         date: rescheduleData.date,
+        appointment_time: rescheduleData.appointment_time,
       });
       toast.success('Appointment rescheduled');
       setRescheduleModal(null);
@@ -129,36 +156,35 @@ export default function MyAppointments() {
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {displayed.map((appt) => {
-            const doctor = appt.slot?.doctor;
+            const doctorName = appt.slot?.doctor?.full_name || '';
+            const specialty = appt.slot?.doctor?.specialty?.name || '';
             return (
-              <div key={appt.id} className="card p-6 animate-fade-in">
+              <div
+                key={appt.id}
+                className="card p-5 hover:shadow-md transition-shadow"
+              >
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                  {/* Doctor avatar */}
-                  <div className="w-12 h-12 rounded-2xl gradient-primary flex items-center justify-center shrink-0 shadow-md shadow-primary-500/15">
-                    <Stethoscope className="w-6 h-6 text-white" />
-                  </div>
-
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-semibold text-gray-900">
-                        Dr. {doctor?.full_name || 'Unknown'}
-                      </h3>
+                      <Stethoscope className="w-4 h-4 text-primary-500 shrink-0" />
+                      <p className="font-semibold text-gray-900">
+                        Dr. {doctorName}
+                      </p>
                       <StatusBadge status={appt.status} />
                     </div>
-                    <p className="text-sm text-primary-600 mt-0.5">
-                      {doctor?.specialty_name || 'General'}
-                    </p>
-                    <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                    {specialty && (
+                      <p className="text-xs text-gray-400 mt-0.5 ml-6">{specialty}</p>
+                    )}
+                    <div className="flex items-center gap-3 mt-2 text-sm text-gray-500">
                       <span className="flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5" />
                         {appt.date}
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5" />
-                        {appt.slot?.start_time?.slice(0, 5)} – {appt.slot?.end_time?.slice(0, 5)}
+                        {appt.appointment_time?.slice(0, 5) || appt.slot?.start_time?.slice(0, 5)}
                       </span>
                     </div>
                     {appt.reason && (
@@ -212,7 +238,7 @@ export default function MyAppointments() {
                 <label className="label">Select Slot</label>
                 <select
                   value={rescheduleData.slot}
-                  onChange={(e) => setRescheduleData({ ...rescheduleData, slot: e.target.value })}
+                  onChange={(e) => setRescheduleData({ ...rescheduleData, slot: e.target.value, date: '', appointment_time: '' })}
                   className="input"
                 >
                   <option value="">Choose a slot</option>
@@ -230,10 +256,46 @@ export default function MyAppointments() {
                   type="date"
                   min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
                   value={rescheduleData.date}
-                  onChange={(e) => setRescheduleData({ ...rescheduleData, date: e.target.value })}
+                  onChange={(e) => setRescheduleData({ ...rescheduleData, date: e.target.value, appointment_time: '' })}
                   className="input"
                 />
               </div>
+
+              {/* Time slots */}
+              {rescheduleData.slot && rescheduleData.date && (
+                <div>
+                  <label className="label">Select Time</label>
+                  {loadingTimes ? (
+                    <div className="flex items-center justify-center py-4">
+                      <div className="w-5 h-5 border-2 border-primary-300 border-t-primary-600 rounded-full animate-spin" />
+                    </div>
+                  ) : rescheduleTimeSlots.length === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-3">No times available</p>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-2">
+                      {rescheduleTimeSlots.map((ts) => (
+                        <button
+                          key={ts.time}
+                          type="button"
+                          onClick={() => {
+                            if (ts.available) setRescheduleData({ ...rescheduleData, appointment_time: ts.time });
+                          }}
+                          disabled={!ts.available}
+                          className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+                            !ts.available
+                              ? 'bg-red-50 text-red-300 border-red-100 cursor-not-allowed line-through'
+                              : rescheduleData.appointment_time === ts.time
+                              ? 'bg-primary-600 text-white border-primary-600'
+                              : 'bg-white text-gray-700 border-gray-200 hover:border-primary-300'
+                          }`}
+                        >
+                          {ts.time}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex gap-3 pt-2">
                 <button
@@ -244,7 +306,7 @@ export default function MyAppointments() {
                 </button>
                 <button
                   onClick={handleReschedule}
-                  disabled={actionLoading}
+                  disabled={actionLoading || !rescheduleData.appointment_time}
                   className="btn-primary flex-1"
                 >
                   {actionLoading ? (

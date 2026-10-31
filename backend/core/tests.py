@@ -129,7 +129,7 @@ class DoubleBookingTest(BaseTestCase):
         """A booking on a free slot+date should return 201."""
         response = self._book(self.patient1_user)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["status"], "CONFIRMED")
+        self.assertEqual(response.data["status"], "PENDING")
 
     def test_double_booking_is_rejected(self):
         """Second booking on the same slot+date (different patient) must return 400."""
@@ -406,24 +406,29 @@ class BookingLifecycleTest(BaseTestCase):
         appt_id = r.data["id"]
 
         self.client.force_authenticate(user=self.doctor_user)
+        self.client.post(reverse("appointment-confirm", kwargs={"pk": appt_id}))
         resp = self.client.post(reverse("appointment-complete", kwargs={"pk": appt_id}))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["status"], "COMPLETED")
 
-    def test_no_show_flow(self):
-        """Doctor can mark a CONFIRMED appointment as NO_SHOW."""
+    def test_expire_flow(self):
+        """Doctor can mark an appointment as EXPIRED."""
         r = self._book(self.patient1_user)
         appt_id = r.data["id"]
 
         self.client.force_authenticate(user=self.doctor_user)
-        resp = self.client.post(reverse("appointment-no-show", kwargs={"pk": appt_id}))
+        resp = self.client.post(reverse("appointment-expire", kwargs={"pk": appt_id}))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.data["status"], "NO_SHOW")
+        self.assertEqual(resp.data["status"], "EXPIRED")
 
     def test_cannot_complete_cancelled(self):
         """Cannot complete an already cancelled appointment."""
         r = self._book(self.patient1_user)
         appt_id = r.data["id"]
+
+        # Confirm
+        self.client.force_authenticate(user=self.doctor_user)
+        self.client.post(reverse("appointment-confirm", kwargs={"pk": appt_id}))
 
         # Cancel
         self.client.force_authenticate(user=self.patient1_user)
@@ -439,8 +444,9 @@ class BookingLifecycleTest(BaseTestCase):
         r = self._book(self.patient1_user)
         appt_id = r.data["id"]
 
-        # Complete
+        # Confirm and Complete
         self.client.force_authenticate(user=self.doctor_user)
+        self.client.post(reverse("appointment-confirm", kwargs={"pk": appt_id}))
         self.client.post(reverse("appointment-complete", kwargs={"pk": appt_id}))
 
         # Try to cancel
@@ -470,6 +476,7 @@ class MedicalRecordEdgeCaseTest(BaseTestCase):
         r = self._book(self.patient1_user)
         appt_id = r.data["id"]
         self.client.force_authenticate(user=self.doctor_user)
+        self.client.post(reverse("appointment-confirm", kwargs={"pk": appt_id}))
         self.client.post(reverse("appointment-complete", kwargs={"pk": appt_id}))
         return appt_id
 

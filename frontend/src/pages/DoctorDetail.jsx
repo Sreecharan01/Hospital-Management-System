@@ -14,6 +14,7 @@ import {
   Send,
   Award,
   DollarSign,
+  XCircle,
 } from 'lucide-react';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -27,8 +28,11 @@ export default function DoctorDetail() {
   const [loading, setLoading] = useState(true);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [selectedDate, setSelectedDate] = useState('');
+  const [selectedTime, setSelectedTime] = useState('');
   const [reason, setReason] = useState('');
   const [booking, setBooking] = useState(false);
+  const [timeSlots, setTimeSlots] = useState([]);
+  const [loadingTimes, setLoadingTimes] = useState(false);
 
   useEffect(() => {
     const fetchDoctor = async () => {
@@ -44,6 +48,32 @@ export default function DoctorDetail() {
     };
     fetchDoctor();
   }, [id, navigate]);
+
+  // Fetch available time slots when slot + date are selected
+  useEffect(() => {
+    if (!selectedSlot || !selectedDate) {
+      setTimeSlots([]);
+      setSelectedTime('');
+      return;
+    }
+
+    const fetchTimes = async () => {
+      setLoadingTimes(true);
+      setSelectedTime('');
+      try {
+        const { data } = await api.get('/appointments/available-times/', {
+          params: { slot: selectedSlot.id, date: selectedDate },
+        });
+        setTimeSlots(data.times || []);
+      } catch {
+        setTimeSlots([]);
+        toast.error('Could not load available times');
+      } finally {
+        setLoadingTimes(false);
+      }
+    };
+    fetchTimes();
+  }, [selectedSlot, selectedDate]);
 
   // Group slots by day
   const slotsByDay = {};
@@ -64,8 +94,8 @@ export default function DoctorDetail() {
   };
 
   const handleBook = async () => {
-    if (!selectedSlot || !selectedDate) {
-      toast.error('Please select a slot and date');
+    if (!selectedSlot || !selectedDate || !selectedTime) {
+      toast.error('Please select a slot, date, and time');
       return;
     }
     if (!isAuthenticated) {
@@ -83,6 +113,7 @@ export default function DoctorDetail() {
       await api.post('/appointments/', {
         slot: selectedSlot.id,
         date: selectedDate,
+        appointment_time: selectedTime,
         reason,
       });
       toast.success('Appointment booked successfully!');
@@ -99,6 +130,9 @@ export default function DoctorDetail() {
 
   if (loading) return <LoadingSpinner size="lg" className="py-32" />;
   if (!doctor) return null;
+
+  const availableCount = timeSlots.filter((t) => t.available).length;
+  const totalCount = timeSlots.length;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -183,6 +217,8 @@ export default function DoctorDetail() {
                             onClick={() => {
                               setSelectedSlot(slot);
                               setSelectedDate('');
+                              setSelectedTime('');
+                              setTimeSlots([]);
                             }}
                             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
                               selectedSlot?.id === slot.id
@@ -210,7 +246,7 @@ export default function DoctorDetail() {
               Book Appointment
             </h2>
             <p className="text-sm text-gray-400 mb-6">
-              Select a time slot and pick a date
+              Select a slot, pick a date, then choose a time
             </p>
 
             {selectedSlot ? (
@@ -221,6 +257,7 @@ export default function DoctorDetail() {
                   </p>
                 </div>
 
+                {/* Date picker */}
                 <div>
                   <label htmlFor="appt-date" className="label">Date</label>
                   <input
@@ -236,6 +273,64 @@ export default function DoctorDetail() {
                   </p>
                 </div>
 
+                {/* 10-minute time slots */}
+                {selectedDate && (
+                  <div>
+                    <label className="label">
+                      Select Time
+                      {totalCount > 0 && (
+                        <span className="ml-2 text-xs font-normal text-gray-400">
+                          ({availableCount} of {totalCount} available)
+                        </span>
+                      )}
+                    </label>
+
+                    {loadingTimes ? (
+                      <div className="flex items-center justify-center py-6">
+                        <div className="w-5 h-5 border-2 border-primary-300 border-t-primary-600 rounded-full animate-spin" />
+                      </div>
+                    ) : timeSlots.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-4">
+                        No time slots for this date
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2">
+                        {timeSlots.map((ts) => (
+                          <button
+                            key={ts.time}
+                            onClick={() => {
+                              if (ts.available) setSelectedTime(ts.time);
+                            }}
+                            disabled={!ts.available}
+                            className={`px-2 py-2 rounded-lg text-sm font-medium transition-all border ${
+                              !ts.available
+                                ? 'bg-red-50 text-red-300 border-red-100 cursor-not-allowed line-through'
+                                : selectedTime === ts.time
+                                ? 'bg-primary-600 text-white border-primary-600 shadow-md shadow-primary-500/20'
+                                : 'bg-white text-gray-700 border-gray-200 hover:border-primary-300 hover:bg-primary-50'
+                            }`}
+                            title={ts.available ? 'Available' : 'Already booked'}
+                          >
+                            {ts.time}
+                            {!ts.available && (
+                              <XCircle className="w-3 h-3 inline ml-1 text-red-400" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {availableCount === 0 && totalCount > 0 && !loadingTimes && (
+                      <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                        <p className="text-xs text-amber-700 font-medium">
+                          ⚠️ All time slots are booked for this date. Please try another date.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Reason */}
                 <div>
                   <label htmlFor="appt-reason" className="label">Reason (optional)</label>
                   <textarea
@@ -251,7 +346,7 @@ export default function DoctorDetail() {
                 <button
                   id="book-appointment-btn"
                   onClick={handleBook}
-                  disabled={!selectedDate || booking}
+                  disabled={!selectedDate || !selectedTime || booking}
                   className="btn-primary w-full py-3"
                 >
                   {booking ? (
@@ -259,7 +354,7 @@ export default function DoctorDetail() {
                   ) : (
                     <>
                       <Send className="w-4 h-4" />
-                      Confirm Booking
+                      Book at {selectedTime || '...'}
                     </>
                   )}
                 </button>

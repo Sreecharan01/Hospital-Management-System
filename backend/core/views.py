@@ -371,6 +371,8 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == "create":
             return [IsPatient()]
+        if self.action == "available_times":
+            return [IsAuthenticated()]
         return [IsAuthenticated()]
 
     @transaction.atomic
@@ -384,19 +386,22 @@ class AppointmentViewSet(viewsets.ModelViewSet):
 
         slot = serializer.validated_data["slot"]
         appt_date = serializer.validated_data["date"]
+        appt_time = serializer.validated_data["appointment_time"]
 
         # Lock the slot row for the duration of this transaction
         slot = AvailabilitySlot.objects.select_for_update().get(pk=slot.pk)
 
-        # Double-booking check
+        # Double-booking check: same slot + date + time
         exists = (
-            Appointment.objects.filter(slot=slot, date=appt_date)
+            Appointment.objects.filter(
+                slot=slot, date=appt_date, appointment_time=appt_time
+            )
             .exclude(status=Appointment.Status.CANCELLED)
             .exists()
         )
         if exists:
             raise ValidationError(
-                {"detail": "This slot is already booked for the selected date."}
+                {"detail": f"The time slot {appt_time.strftime('%H:%M')} is already booked for {appt_date}. Please select a different time."}
             )
 
         # Ensure patient has a profile
@@ -421,7 +426,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 title="Appointment Requested",
                 message=(
                     f"Your appointment request with Dr. {doctor_name} on "
-                    f"{appt_date} at {appointment.slot.start_time:%H:%M} "
+                    f"{appt_date} at {appt_time.strftime('%H:%M')} "
                     f"has been submitted. Waiting for doctor confirmation."
                 ),
             ),
@@ -430,7 +435,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 title="New Appointment Request",
                 message=(
                     f"{patient_name} has requested an appointment with you on "
-                    f"{appt_date} at {appointment.slot.start_time:%H:%M}. "
+                    f"{appt_date} at {appt_time.strftime('%H:%M')}. "
                     f"Please confirm or decline."
                 ),
             ),
@@ -444,7 +449,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 (
                     f"Dear {patient_name},\n\n"
                     f"Your appointment request with Dr. {doctor_name} has been submitted.\n"
-                    f"Date: {appt_date}\nTime: {appointment.slot.start_time:%H:%M}\n\n"
+                    f"Date: {appt_date}\nTime: {appt_time.strftime('%H:%M')}\n\n"
                     f"You will be notified once the doctor confirms your booking.\n\nHospital Team"
                 ),
             ])
@@ -454,7 +459,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 (
                     f"Dear Dr. {doctor_name},\n\n"
                     f"A new appointment has been requested by {patient_name}.\n"
-                    f"Date: {appt_date}\nTime: {appointment.slot.start_time:%H:%M}\n\n"
+                    f"Date: {appt_date}\nTime: {appt_time.strftime('%H:%M')}\n\n"
                     f"Please log in to confirm or decline this booking.\n\nHospital Team"
                 ),
             ])
@@ -562,7 +567,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     def reschedule(self, request, pk=None):
         """
         POST /api/appointments/{id}/reschedule/
-        Body: { "slot": "<uuid>", "date": "YYYY-MM-DD" }
+        Body: { "slot": "<uuid>", "date": "YYYY-MM-DD", "appointment_time": "HH:MM" }
         Patient only; runs same double-booking checks.
         """
         appointment = self.get_object()
@@ -580,6 +585,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
 
         new_slot_id = request.data.get("slot")
         new_date_str = request.data.get("date")
+        new_time_str = request.data.get("appointment_time")
 
         if not new_slot_id or not new_date_str:
             raise ValidationError({"detail": "'slot' and 'date' are required."})
@@ -593,6 +599,15 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             new_date = datetime.date.fromisoformat(new_date_str)
         except ValueError:
             raise ValidationError({"date": "Invalid date format. Use YYYY-MM-DD."})
+
+        if new_time_str:
+            try:
+                new_time = datetime.time.fromisoformat(new_time_str)
+            except ValueError:
+                raise ValidationError({"appointment_time": "Invalid time format. Use HH:MM."})
+        else:
+            new_time = new_slot.start_time
+            raise ValidationError({"appointment_time": "Invalid time format. Use HH:MM."})
 
         if new_date <= datetime.date.today():
             raise ValidationError({"date": "Appointment date must be in the future."})
@@ -608,23 +623,36 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 )
             })
 
+        # Validate time falls within the slot window
+        if new_time < new_slot.start_time or new_time >= new_slot.end_time:
+            raise ValidationError({
+                "appointment_time": (
+                    f"Appointment time must be between "
+                    f"{new_slot.start_time.strftime('%H:%M')} and "
+                    f"{new_slot.end_time.strftime('%H:%M')}."
+                )
+            })
+
         # Double-booking check (exclude current appointment)
         conflict = (
-            Appointment.objects.filter(slot=new_slot, date=new_date)
+            Appointment.objects.filter(
+                slot=new_slot, date=new_date, appointment_time=new_time
+            )
             .exclude(status=Appointment.Status.CANCELLED)
             .exclude(pk=appointment.pk)
             .exists()
         )
         if conflict:
             raise ValidationError(
-                {"detail": "The new slot is already booked for the selected date."}
+                {"detail": f"The time slot {new_time.strftime('%H:%M')} is already booked for {new_date}. Please select a different time."}
             )
 
         old_date = appointment.date
         appointment.slot = new_slot
         appointment.date = new_date
+        appointment.appointment_time = new_time
         appointment.status = Appointment.Status.CONFIRMED
-        appointment.save(update_fields=["slot", "date", "status", "updated_at"])
+        appointment.save(update_fields=["slot", "date", "appointment_time", "status", "updated_at"])
 
         # Notifications
         Notification.objects.bulk_create([
@@ -633,7 +661,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 title="Appointment Rescheduled",
                 message=(
                     f"Your appointment has been rescheduled from {old_date} "
-                    f"to {new_date} at {new_slot.start_time:%H:%M}."
+                    f"to {new_date} at {new_time.strftime('%H:%M')}."
                 ),
             ),
             Notification(
@@ -641,7 +669,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 title="Appointment Rescheduled",
                 message=(
                     f"{request.user.get_full_name()} rescheduled their appointment "
-                    f"from {old_date} to {new_date} at {new_slot.start_time:%H:%M}."
+                    f"from {old_date} to {new_date} at {new_time.strftime('%H:%M')}."
                 ),
             ),
         ])
@@ -705,6 +733,56 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         )
 
         return Response(AppointmentSerializer(appointment).data)
+
+    @action(detail=False, methods=["get"], url_path="available-times")
+    def available_times(self, request):
+        """
+        GET /api/appointments/available-times/?slot=<uuid>&date=YYYY-MM-DD
+        Returns 10-minute intervals within the slot window, each marked
+        as available or booked.
+        """
+        slot_id = request.query_params.get("slot")
+        date_str = request.query_params.get("date")
+
+        if not slot_id or not date_str:
+            raise ValidationError({"detail": "'slot' and 'date' query params are required."})
+
+        try:
+            slot = AvailabilitySlot.objects.get(id=slot_id, is_active=True)
+        except AvailabilitySlot.DoesNotExist:
+            raise ValidationError({"detail": "Slot not found or inactive."})
+
+        try:
+            appt_date = datetime.date.fromisoformat(date_str)
+        except ValueError:
+            raise ValidationError({"detail": "Invalid date format. Use YYYY-MM-DD."})
+
+        # Get all booked times for this slot + date (excluding cancelled)
+        booked_times = set(
+            Appointment.objects.filter(slot=slot, date=appt_date)
+            .exclude(status=Appointment.Status.CANCELLED)
+            .values_list("appointment_time", flat=True)
+        )
+
+        # Generate 10-minute intervals
+        intervals = []
+        current = datetime.datetime.combine(appt_date, slot.start_time)
+        end = datetime.datetime.combine(appt_date, slot.end_time)
+
+        while current < end:
+            t = current.time()
+            intervals.append({
+                "time": t.strftime("%H:%M"),
+                "available": t not in booked_times,
+            })
+            current += datetime.timedelta(minutes=10)
+
+        return Response({
+            "slot_id": str(slot.id),
+            "date": date_str,
+            "interval_minutes": 10,
+            "times": intervals,
+        })
 
 
 # ---------------------------------------------------------------------------

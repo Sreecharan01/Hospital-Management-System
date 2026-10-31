@@ -373,11 +373,13 @@ class DoctorProfileUpdateSerializer(serializers.ModelSerializer):
 
 class AppointmentCreateSerializer(serializers.ModelSerializer):
     """Write-only serializer for booking a new appointment."""
+    appointment_time = serializers.TimeField(required=False)
 
     class Meta:
         model = Appointment
-        fields = ["id", "slot", "date", "reason"]
+        fields = ["id", "slot", "date", "appointment_time", "reason"]
         read_only_fields = ["id"]
+        validators = []  # Concurrency/uniqueness checked transactionally in view with SELECT FOR UPDATE
 
     def validate_slot(self, value):
         if not value.is_active:
@@ -387,6 +389,11 @@ class AppointmentCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         slot = attrs.get("slot")
         appt_date = attrs.get("date")
+        appt_time = attrs.get("appointment_time")
+
+        if slot and not appt_time:
+            appt_time = slot.start_time
+            attrs["appointment_time"] = appt_time
 
         if appt_date is None:
             return attrs
@@ -407,6 +414,22 @@ class AppointmentCreateSerializer(serializers.ModelSerializer):
                 )
             })
 
+        # appointment_time must fall within the slot's time window
+        if slot and appt_time:
+            if appt_time < slot.start_time or appt_time >= slot.end_time:
+                raise serializers.ValidationError({
+                    "appointment_time": (
+                        f"Appointment time must be between "
+                        f"{slot.start_time.strftime('%H:%M')} and "
+                        f"{slot.end_time.strftime('%H:%M')}."
+                    )
+                })
+            # Must be on a 10-minute boundary
+            if appt_time.minute % 10 != 0:
+                raise serializers.ValidationError({
+                    "appointment_time": "Appointment time must be on a 10-minute interval (e.g. 09:00, 09:10, 09:20)."
+                })
+
         return attrs
 
 
@@ -422,7 +445,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
         model = Appointment
         fields = [
             "id", "patient", "slot", "date",
-            "status", "reason",
+            "appointment_time", "status", "reason",
             "patient_name", "patient_email",
             "has_medical_record",
             "created_at", "updated_at",
