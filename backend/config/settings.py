@@ -15,7 +15,7 @@ SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-fallback-key")
 
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver"]
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0", "testserver", "*"]
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +135,12 @@ AUTH_USER_MODEL = "core.User"
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:3000",
 ]
+CORS_ALLOW_ALL_ORIGINS = True  # Permissive for local development
 
 
 # ---------------------------------------------------------------------------
