@@ -681,3 +681,95 @@ class AdminStatsAccessTest(BaseTestCase):
         resp = self.client.get(reverse("admin-stats"))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
+
+# ---------------------------------------------------------------------------
+# 10-Minute Interval Booking Tests
+# ---------------------------------------------------------------------------
+
+class TenMinuteIntervalBookingTest(BaseTestCase):
+    """Test 10-minute intervals and overlap detection."""
+
+    def test_booking_different_10_min_slots_succeeds(self):
+        """Two patients can book different 10-minute intervals in the same doctor slot."""
+        self.client.force_authenticate(user=self.patient1_user)
+        r1 = self.client.post(
+            reverse("appointment-list"),
+            data={
+                "slot": str(self.slot.id),
+                "date": str(self.next_monday),
+                "appointment_time": "09:10",
+            },
+            format="json",
+        )
+        self.assertEqual(r1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(r1.data["appointment_time"], "09:10:00")
+
+        # Patient 2 books 09:20 on the same date and doctor slot
+        self.client.force_authenticate(user=self.patient2_user)
+        r2 = self.client.post(
+            reverse("appointment-list"),
+            data={
+                "slot": str(self.slot.id),
+                "date": str(self.next_monday),
+                "appointment_time": "09:20",
+            },
+            format="json",
+        )
+        self.assertEqual(r2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(r2.data["appointment_time"], "09:20:00")
+
+    def test_overlapping_10_min_slot_is_rejected(self):
+        """Booking the exact same 10-minute slot should be rejected and notify patient."""
+        self.client.force_authenticate(user=self.patient1_user)
+        r1 = self.client.post(
+            reverse("appointment-list"),
+            data={
+                "slot": str(self.slot.id),
+                "date": str(self.next_monday),
+                "appointment_time": "09:10",
+            },
+            format="json",
+        )
+        self.assertEqual(r1.status_code, status.HTTP_201_CREATED)
+
+        # Patient 2 tries to book the same 09:10 time
+        self.client.force_authenticate(user=self.patient2_user)
+        r2 = self.client.post(
+            reverse("appointment-list"),
+            data={
+                "slot": str(self.slot.id),
+                "date": str(self.next_monday),
+                "appointment_time": "09:10",
+            },
+            format="json",
+        )
+        self.assertEqual(r2.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already booked", str(r2.data))
+
+    def test_available_times_query(self):
+        """GET /api/appointments/available-times/ returns intervals with availability."""
+        self.client.force_authenticate(user=self.patient1_user)
+        self.client.post(
+            reverse("appointment-list"),
+            data={
+                "slot": str(self.slot.id),
+                "date": str(self.next_monday),
+                "appointment_time": "09:10",
+            },
+            format="json",
+        )
+
+        resp = self.client.get(
+            reverse("appointment-available-times"),
+            {"slot": str(self.slot.id), "date": str(self.next_monday)},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        times = {item["time"]: item["available"] for item in resp.data["times"]}
+        self.assertIn("09:00", times)
+        self.assertTrue(times["09:00"])
+        self.assertIn("09:10", times)
+        self.assertFalse(times["09:10"])  # booked
+        self.assertIn("09:20", times)
+        self.assertTrue(times["09:20"])
+
+

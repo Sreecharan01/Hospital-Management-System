@@ -230,7 +230,13 @@ class Appointment(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("slot", "date", "appointment_time")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["slot", "date", "appointment_time"],
+                condition=~models.Q(status="CANCELLED"),
+                name="unique_active_appointment_time",
+            )
+        ]
         ordering = ["-date", "-created_at"]
 
     def __str__(self):

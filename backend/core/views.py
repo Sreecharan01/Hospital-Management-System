@@ -12,6 +12,7 @@ import uuid
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count, Q
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
@@ -478,6 +479,20 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         if user.role == "DOCTOR" and appointment.slot.doctor.user != user:
             raise PermissionDenied("You can only manage appointments in your slots.")
 
+    def get_object(self):
+        if self.action in ("cancel", "reschedule", "complete", "expire", "confirm"):
+            obj = get_object_or_404(
+                Appointment.objects.select_related(
+                    "patient__user",
+                    "slot__doctor__user",
+                    "slot__doctor__specialty",
+                ),
+                pk=self.kwargs["pk"],
+            )
+            self._assert_appointment_ownership(obj, self.request.user)
+            return obj
+        return super().get_object()
+
     @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
         """POST /api/appointments/{id}/confirm/ — doctor accepts a pending booking."""
@@ -607,7 +622,6 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 raise ValidationError({"appointment_time": "Invalid time format. Use HH:MM."})
         else:
             new_time = new_slot.start_time
-            raise ValidationError({"appointment_time": "Invalid time format. Use HH:MM."})
 
         if new_date <= datetime.date.today():
             raise ValidationError({"date": "Appointment date must be in the future."})
