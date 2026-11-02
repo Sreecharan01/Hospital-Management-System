@@ -3,6 +3,7 @@ Django settings for Hospital Appointment Management System.
 """
 
 import os
+import sys
 from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
@@ -41,6 +42,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -75,12 +77,20 @@ WSGI_APPLICATION = "config.wsgi.application"
 # ---------------------------------------------------------------------------
 
 USE_SQLITE = os.getenv("USE_SQLITE", "False").lower() in ("true", "1", "yes")
+TESTING = "test" in sys.argv
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://neondb_owner:npg_NBZvnO8i4srh@ep-little-credit-a1mi4ghv-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
 )
 
-if DATABASE_URL:
+if TESTING or USE_SQLITE:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
+elif DATABASE_URL:
     from urllib.parse import urlparse, parse_qs
     url = urlparse(DATABASE_URL)
     query_params = parse_qs(url.query)
@@ -99,13 +109,6 @@ if DATABASE_URL:
             "HOST": url.hostname,
             "PORT": url.port or 5432,
             "OPTIONS": options,
-        }
-    }
-elif USE_SQLITE:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
         }
     }
 else:
@@ -149,6 +152,7 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

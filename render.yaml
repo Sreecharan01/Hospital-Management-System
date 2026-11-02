@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: hospital-management-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
+    startCommand: gunicorn config.wsgi:application
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: "*"
+      - key: USE_SQLITE
+        value: "False"
+      - key: DATABASE_URL
+        value: postgresql://neondb_owner:npg_NBZvnO8i4srh@ep-little-credit-a1mi4ghv-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
