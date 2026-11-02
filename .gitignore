@@ -23,9 +23,12 @@ generate_presentation.py
 generate_srs_pdf.py
 *.pptx
 hospital_management_system.pptx
+*.pdf
+Hospital_Appointment_Management_System_SRS.pdf
 
 # OS / Editor artifacts
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+
