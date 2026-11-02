@@ -78,8 +78,15 @@ USE_SQLITE = os.getenv("USE_SQLITE", "False").lower() in ("true", "1", "yes")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL:
-    from urllib.parse import urlparse
+    from urllib.parse import urlparse, parse_qs
     url = urlparse(DATABASE_URL)
+    query_params = parse_qs(url.query)
+    options = {}
+    if "sslmode" in query_params:
+        options["sslmode"] = query_params["sslmode"][0]
+    else:
+        options["sslmode"] = "require"
+
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -88,6 +95,7 @@ if DATABASE_URL:
             "PASSWORD": url.password,
             "HOST": url.hostname,
             "PORT": url.port or 5432,
+            "OPTIONS": options,
         }
     }
 elif USE_SQLITE:
