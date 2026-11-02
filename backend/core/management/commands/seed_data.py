@@ -40,7 +40,7 @@ DOCTORS = [
         "last_name": "Smith",
         "specialty": "Cardiology",
         "bio": "Board-certified cardiologist with 15 years of experience.",
-        "fee": "150.00",
+        "fee": "800.00",
         "experience_years": 15,
         "is_verified": True,
         # Slots: Mon Wed Fri 09:00-10:00 and 10:00-11:00
@@ -59,7 +59,7 @@ DOCTORS = [
         "last_name": "Johnson",
         "specialty": "Dermatology",
         "bio": "Specialist in skin diseases and cosmetic dermatology.",
-        "fee": "120.00",
+        "fee": "650.00",
         "experience_years": 10,
         "is_verified": True,
         "slots": [
@@ -77,7 +77,7 @@ DOCTORS = [
         "last_name": "Patel",
         "specialty": "Pediatrics",
         "bio": "Dedicated pediatrician focused on child wellness and development.",
-        "fee": "100.00",
+        "fee": "500.00",
         "experience_years": 8,
         "is_verified": True,
         "slots": [
@@ -94,7 +94,7 @@ DOCTORS = [
         "last_name": "Lee",
         "specialty": "Orthopedics",
         "bio": "Expert in joint replacement and sports medicine.",
-        "fee": "175.00",
+        "fee": "1200.00",
         "experience_years": 20,
         "is_verified": True,
         "slots": [
@@ -111,7 +111,7 @@ DOCTORS = [
         "last_name": "Garcia",
         "specialty": "Cardiology",
         "bio": "Specializes in non-invasive cardiology and preventive care.",
-        "fee": "140.00",
+        "fee": "750.00",
         "experience_years": 12,
         "is_verified": False,
         "slots": [

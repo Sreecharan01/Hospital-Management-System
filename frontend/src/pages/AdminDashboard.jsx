@@ -25,12 +25,16 @@ import {
   Bell,
   TrendingUp,
   X,
+  RotateCcw,
+  Clock,
+  AlertCircle,
 } from 'lucide-react';
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [doctors, setDoctors] = useState([]);
   const [specialties, setSpecialties] = useState([]);
+  const [pendingRefunds, setPendingRefunds] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Specialty form
@@ -45,14 +49,16 @@ export default function AdminDashboard() {
 
   const fetchAll = async () => {
     try {
-      const [statsRes, docsRes, specsRes] = await Promise.all([
+      const [statsRes, docsRes, specsRes, refundsRes] = await Promise.all([
         api.get('/admin/stats/'),
         api.get('/doctors/'),
         api.get('/specialties/'),
+        api.get('/appointments/pending-refunds/'),
       ]);
       setStats(statsRes.data);
       setDoctors(docsRes.data.results || docsRes.data);
       setSpecialties(specsRes.data.results || specsRes.data);
+      setPendingRefunds(refundsRes.data.results || refundsRes.data);
     } catch {
       toast.error('Failed to load admin data');
     } finally {
@@ -63,6 +69,27 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchAll();
   }, []);
+
+  // Process and initiate 50% refund for cancelled appointment
+  const handleProcessRefund = async (appt) => {
+    const patientName = appt.patient_name || appt.patient_email || 'Patient';
+    const refundAmt = appt.payment?.refund_amount || (parseFloat(appt.doctor_fee || 0) * 0.5).toFixed(0);
+
+    if (!confirm(`Are you sure you want to approve and initiate the 50% refund of ₹${refundAmt} for ${patientName}?`)) {
+      return;
+    }
+
+    setActionLoading(`refund-${appt.id}`);
+    try {
+      const { data } = await api.post(`/appointments/${appt.id}/process-refund/`);
+      toast.success(`50% refund (₹${data.refund_amount}) initiated successfully! Ref: ${data.refund_transaction_id}`);
+      fetchAll();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to initiate refund');
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   // Verify doctor
   const verifyDoctor = async (docId) => {
@@ -145,7 +172,7 @@ export default function AdminDashboard() {
     { label: 'Doctors', value: stats?.users?.doctors || 0, icon: Stethoscope, color: 'from-purple-500 to-purple-600', bg: 'bg-purple-50' },
     { label: 'Appointments', value: stats?.appointments?.total || 0, icon: Calendar, color: 'from-amber-500 to-amber-600', bg: 'bg-amber-50' },
     { label: 'Pending Verification', value: stats?.doctors?.pending_verification || 0, icon: Shield, color: 'from-red-500 to-red-600', bg: 'bg-red-50' },
-    { label: 'Medical Records', value: stats?.medical_records || 0, icon: FileText, color: 'from-teal-500 to-teal-600', bg: 'bg-teal-50' },
+    { label: 'Pending 50% Refunds', value: pendingRefunds.length, icon: RotateCcw, color: 'from-amber-500 to-orange-600', bg: 'bg-amber-50' },
   ];
 
   return (
@@ -214,6 +241,98 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* Cancellation 50% Refund Requests (Admin Approval Queue) */}
+      <div className="card p-6 mb-8 border-2 border-amber-100 bg-gradient-to-br from-white to-amber-50/20">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-amber-100 text-amber-700 rounded-xl">
+              <RotateCcw className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                Cancellation Refund Requests (50% Policy)
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                  {pendingRefunds.length} Pending
+                </span>
+              </h2>
+              <p className="text-xs text-gray-500">
+                When a patient cancels an appointment, hospital policy issues a 50% refund initiated by admin.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {pendingRefunds.length === 0 ? (
+          <div className="text-center py-8 text-gray-400 bg-white/60 rounded-xl border border-gray-100">
+            <CheckCircle className="w-8 h-8 mx-auto mb-2 text-emerald-500 opacity-60" />
+            <p className="text-sm font-medium text-gray-700">All cancellation refunds processed</p>
+            <p className="text-xs text-gray-400 mt-0.5">No patient refund requests are currently awaiting admin approval.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {pendingRefunds.map((appt) => {
+              const patientName = appt.patient_name || appt.patient_email || 'Patient';
+              const doctorName = appt.slot?.doctor?.full_name || '';
+              const origFee = parseFloat(appt.payment?.amount || appt.doctor_fee || 0).toFixed(0);
+              const refundDue = parseFloat(appt.payment?.refund_amount || (parseFloat(origFee) * 0.5)).toFixed(0);
+
+              return (
+                <div
+                  key={appt.id}
+                  className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-white rounded-xl border border-amber-200/80 shadow-sm gap-4 hover:border-amber-300 transition"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-gray-900 text-sm">{patientName}</span>
+                      <span className="text-xs text-gray-400 font-mono">({appt.patient_email})</span>
+                      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                        <Clock className="w-3 h-3 text-amber-700" />
+                        <span>Action Required: 50% Refund</span>
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-gray-600">
+                      Cancelled Appointment with <strong className="text-gray-800">Dr. {doctorName}</strong> on{' '}
+                      <span className="font-medium text-gray-800">{appt.date}</span> at{' '}
+                      <span className="font-medium text-gray-800">{appt.appointment_time?.slice(0, 5) || appt.slot?.start_time?.slice(0, 5)}</span>
+                    </p>
+
+                    <div className="flex items-center gap-4 text-xs pt-1">
+                      <span className="text-gray-500">
+                        Original Paid Fee: <strong className="text-gray-800">₹{origFee}</strong>
+                      </span>
+                      <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        50% Refund Amount: ₹{refundDue}
+                      </span>
+                      <span className="text-gray-400">
+                        Hospital Retained (50%): ₹{origFee - refundDue}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 flex items-center gap-2">
+                    <button
+                      onClick={() => handleProcessRefund(appt)}
+                      disabled={actionLoading === `refund-${appt.id}`}
+                      className="btn-primary text-xs font-bold py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm flex items-center gap-1.5 transition"
+                    >
+                      {actionLoading === `refund-${appt.id}` ? (
+                        <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <CheckCircle className="w-4 h-4" />
+                          <span>Approve & Initiate ₹{refundDue} Refund</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       <div className="grid lg:grid-cols-2 gap-8">
         {/* Doctor Verification */}

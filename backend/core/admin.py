@@ -74,7 +74,7 @@ class AppointmentAdmin(admin.ModelAdmin):
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
-    list_display = ["transaction_id", "patient", "doctor", "amount", "currency", "payment_method", "status", "created_at"]
+    list_display = ["transaction_id", "patient", "doctor", "amount", "currency", "payment_method", "status", "refund_amount", "created_at"]
     list_filter = ["status", "payment_method", "currency"]
     search_fields = ["transaction_id", "patient__user__email", "doctor__user__email"]
 

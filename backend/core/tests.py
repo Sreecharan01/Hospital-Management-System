@@ -807,5 +807,46 @@ class TenMinuteIntervalBookingTest(BaseTestCase):
         self.assertEqual(rec_res.data["amount"], "100.00")
         self.assertIn("REC-", rec_res.data["receipt_number"])
 
+    def test_patient_cancel_and_admin_50_percent_refund(self):
+        """When patient cancels paid appointment, 50% refund is queued and initiated by admin."""
+        self.client.force_authenticate(user=self.patient1_user)
+        r = self.client.post(
+            reverse("appointment-list"),
+            data={
+                "slot": str(self.slot.id),
+                "date": str(self.next_monday),
+                "appointment_time": "09:00",
+            },
+            format="json",
+        )
+        appt_id = r.data["id"]
+
+        # Pay fee
+        self.client.post(f"/api/appointments/{appt_id}/pay/", data={"payment_method": "CARD"}, format="json")
+
+        # Patient cancels appointment
+        cancel_res = self.client.post(f"/api/appointments/{appt_id}/cancel/")
+        self.assertEqual(cancel_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(cancel_res.data["status"], "CANCELLED")
+        self.assertEqual(cancel_res.data["payment_status"], "REFUND_PENDING")
+
+        # Admin processes 50% refund
+        admin_user = User.objects.create_superuser(
+            email="admin.test@hospital.com", password="AdminPassword123!", role="ADMIN"
+        )
+        self.client.force_authenticate(user=admin_user)
+
+        # Check pending refunds endpoint
+        pending_res = self.client.get("/api/appointments/pending-refunds/")
+        self.assertEqual(pending_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(any(a["id"] == appt_id for a in pending_res.data))
+
+        # Admin initiates and approves 50% refund
+        refund_res = self.client.post(f"/api/appointments/{appt_id}/process-refund/")
+        self.assertEqual(refund_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(refund_res.data["refund_amount"], "50.00")
+        self.assertIn("REF-", refund_res.data["refund_transaction_id"])
+        self.assertEqual(refund_res.data["payment"]["status"], "REFUNDED")
+
 
 

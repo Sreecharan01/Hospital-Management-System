@@ -167,7 +167,7 @@ export default function PaymentModal({
           </div>
           <div className="text-right">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Consultation Fee</p>
-            <p className="text-2xl font-black text-emerald-600">${feeAmount}</p>
+            <p className="text-2xl font-black text-emerald-600">₹{feeAmount}</p>
           </div>
         </div>
 
@@ -393,16 +393,24 @@ export default function PaymentModal({
             <div className="space-y-1.5 text-xs text-gray-500 pt-1">
               <div className="flex justify-between">
                 <span>Doctor Consultation Fee</span>
-                <span>${feeAmount}</span>
+                <span>₹{feeAmount}</span>
               </div>
               <div className="flex justify-between">
                 <span>Hospital Tele-Registration Fee</span>
-                <span className="text-emerald-600 font-medium">Free ($0.00)</span>
+                <span className="text-emerald-600 font-medium">Free (₹0.00)</span>
               </div>
               <div className="flex justify-between font-bold text-gray-900 text-sm border-t border-gray-100 pt-1.5">
                 <span>Total Amount to Pay</span>
-                <span className="text-emerald-600">${feeAmount} USD</span>
+                <span className="text-emerald-600">₹{feeAmount} INR</span>
               </div>
+            </div>
+
+            {/* Cancellation Policy Notice */}
+            <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-2.5 flex items-start space-x-2 text-[11px] text-amber-800">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <span>
+                <strong>Cancellation & Refund Policy:</strong> If you cancel this appointment, a 50% refund (₹{(parseFloat(feeAmount) * 0.5).toFixed(2)}) will be initiated by the hospital administration.
+              </span>
             </div>
 
             {/* Submit button */}
@@ -412,7 +420,7 @@ export default function PaymentModal({
               className="btn-primary w-full py-3.5 text-base font-bold shadow-lg shadow-primary-600/30 flex items-center justify-center space-x-2 rounded-2xl"
             >
               <ShieldCheck className="w-5 h-5" />
-              <span>Pay ${feeAmount} & Confirm Booking</span>
+              <span>Pay ₹{feeAmount} & Confirm Booking</span>
               <ArrowRight className="w-4 h-4 ml-1" />
             </button>
           </form>
@@ -422,3 +430,4 @@ export default function PaymentModal({
     </div>
   );
 }
+

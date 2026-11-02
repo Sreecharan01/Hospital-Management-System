@@ -481,6 +481,9 @@ class AppointmentSerializer(serializers.ModelSerializer):
                 "card_last4": p.card_last4,
                 "card_brand": p.card_brand,
                 "upi_id": p.upi_id,
+                "refund_amount": str(p.refund_amount),
+                "refund_transaction_id": p.refund_transaction_id,
+                "refunded_at": p.refunded_at.isoformat() if p.refunded_at else None,
                 "paid_at": p.paid_at.isoformat() if p.paid_at else None,
             }
         return None
@@ -505,7 +508,9 @@ class PaymentSerializer(serializers.ModelSerializer):
             "appointment_date", "appointment_time",
             "amount", "currency", "payment_method",
             "transaction_id", "status", "card_last4",
-            "card_brand", "upi_id", "paid_at", "created_at",
+            "card_brand", "upi_id", "refund_amount",
+            "refund_transaction_id", "refunded_at",
+            "paid_at", "created_at",
         ]
         read_only_fields = ["id", "transaction_id", "status", "paid_at", "created_at"]
 

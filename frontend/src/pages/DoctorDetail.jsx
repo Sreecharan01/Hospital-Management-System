@@ -374,9 +374,9 @@ export default function DoctorDetail() {
                   </div>
                   <div className="text-right">
                     <span className="text-xl font-black text-emerald-700">
-                      ${parseFloat(doctor?.fee || 0).toFixed(2)}
+                      ₹{parseFloat(doctor?.fee || 0).toFixed(2)}
                     </span>
-                    <span className="text-[10px] text-emerald-600 block">USD</span>
+                    <span className="text-[10px] text-emerald-600 block">INR</span>
                   </div>
                 </div>
 
@@ -391,7 +391,7 @@ export default function DoctorDetail() {
                   ) : (
                     <>
                       <CreditCard className="w-4 h-4" />
-                      <span>Pay ${parseFloat(doctor?.fee || 0).toFixed(2)} & Book</span>
+                      <span>Pay ₹{parseFloat(doctor?.fee || 0).toFixed(2)} & Book</span>
                     </>
                   )}
                 </button>

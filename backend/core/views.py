@@ -8,6 +8,7 @@ Views for Hospital Appointment Management System.
 import datetime
 import logging
 import uuid
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -437,7 +438,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 patient=patient_profile,
                 doctor=appointment.slot.doctor,
                 amount=doctor_fee,
-                currency="USD",
+                currency="INR",
                 payment_method=method,
                 transaction_id=txn_id,
                 status=Payment.Status.COMPLETED,
@@ -451,12 +452,12 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             Notification.objects.create(
                 user=request.user,
                 title="Payment Received",
-                message=f"Consultation fee of ${doctor_fee} paid successfully (Txn: {txn_id}).",
+                message=f"Consultation fee of ₹{doctor_fee} paid successfully (Txn: {txn_id}).",
             )
             Notification.objects.create(
                 user=doctor_user,
                 title="Fee Paid Online",
-                message=f"{patient_name} paid the consultation fee of ${doctor_fee} for your appointment on {appt_date}.",
+                message=f"{patient_name} paid the consultation fee of ₹{doctor_fee} for your appointment on {appt_date}.",
             )
 
         # In-app notifications
@@ -591,22 +592,68 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 {"detail": f"Cannot cancel an appointment with status '{appointment.status}'."}
             )
 
+        is_paid = appointment.payment_status == Appointment.PaymentStatus.PAID
         appointment.status = Appointment.Status.CANCELLED
-        appointment.save(update_fields=["status", "updated_at"])
+        refund_amt = Decimal("0.00")
+
+        # If patient cancelled a paid appointment, initiate 50% refund workflow for admin review
+        if is_paid:
+            appointment.payment_status = Appointment.PaymentStatus.REFUND_PENDING
+            if hasattr(appointment, "payment") and appointment.payment:
+                payment = appointment.payment
+                refund_amt = round(payment.amount * Decimal("0.50"), 2)
+                payment.status = Payment.Status.REFUND_PENDING
+                payment.refund_amount = refund_amt
+                payment.save(update_fields=["status", "refund_amount"])
+
+            # Notify Admins to review and process the 50% refund
+            User = get_user_model()
+            admins = User.objects.filter(role=User.Role.ADMIN)
+            doctor_name = appointment.slot.doctor.user.get_full_name()
+            patient_name = appointment.patient.user.get_full_name()
+            admin_notifications = [
+                Notification(
+                    user=admin_user,
+                    title="Action Required: 50% Refund Pending",
+                    message=(
+                        f"Patient {patient_name} cancelled paid appointment "
+                        f"with Dr. {doctor_name}. Eligible for 50% refund "
+                        f"(₹{refund_amt} of ₹{appointment.payment.amount}). Please review and initiate."
+                    ),
+                )
+                for admin_user in admins
+            ]
+            if admin_notifications:
+                Notification.objects.bulk_create(admin_notifications)
+
+        appointment.save(update_fields=["status", "payment_status", "updated_at"])
 
         # Notify the other party
+        doctor_user = appointment.slot.doctor.user
+        patient_user = appointment.patient.user
+
         if request.user.role == "PATIENT":
             Notification.objects.create(
-                user=appointment.slot.doctor.user,
+                user=doctor_user,
                 title="Appointment Cancelled",
                 message=(
                     f"{request.user.get_full_name()} cancelled their appointment "
                     f"on {appointment.date} at {appointment.slot.start_time:%H:%M}."
                 ),
             )
+            if is_paid:
+                Notification.objects.create(
+                    user=patient_user,
+                    title="Appointment Cancelled (50% Refund Pending)",
+                    message=(
+                        f"Your appointment on {appointment.date} has been cancelled. "
+                        f"As per hospital cancellation policy, a 50% refund of ₹{refund_amt} "
+                        f"is pending admin approval and will be credited to your original payment method."
+                    ),
+                )
         else:
             Notification.objects.create(
-                user=appointment.patient.user,
+                user=patient_user,
                 title="Appointment Cancelled",
                 message=(
                     f"Your appointment on {appointment.date} at "
@@ -615,6 +662,66 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             )
 
         return Response(AppointmentSerializer(appointment).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminRole], url_path="process-refund")
+    def process_refund(self, request, pk=None):
+        """
+        POST /api/appointments/{id}/process-refund/
+        Admin initiates and approves the 50% refund for a cancelled appointment.
+        """
+        appointment = self.get_object()
+        if not hasattr(appointment, "payment") or not appointment.payment:
+            raise ValidationError({"detail": "No payment record found for this appointment."})
+
+        payment = appointment.payment
+        if payment.status == Payment.Status.REFUNDED:
+            raise ValidationError({"detail": "This appointment has already been refunded."})
+
+        # Calculate 50% refund amount
+        refund_amount = round(payment.amount * Decimal("0.50"), 2)
+        refund_txn_id = f"REF-{uuid.uuid4().hex[:10].upper()}"
+
+        payment.status = Payment.Status.REFUNDED
+        payment.refund_amount = refund_amount
+        payment.refund_transaction_id = refund_txn_id
+        payment.refunded_at = timezone.now()
+        payment.save(update_fields=["status", "refund_amount", "refund_transaction_id", "refunded_at"])
+
+        appointment.payment_status = Appointment.PaymentStatus.REFUNDED
+        appointment.save(update_fields=["payment_status"])
+
+        # Notify the patient
+        doctor_name = appointment.slot.doctor.user.get_full_name()
+        Notification.objects.create(
+            user=appointment.patient.user,
+            title="50% Refund Approved & Initiated",
+            message=(
+                f"Your 50% refund of ₹{refund_amount} for appointment with Dr. {doctor_name} "
+                f"has been approved by Admin and initiated. (Refund Ref: {refund_txn_id})"
+            ),
+        )
+
+        return Response({
+            "detail": f"50% refund of ₹{refund_amount} approved and initiated successfully.",
+            "refund_amount": str(refund_amount),
+            "refund_transaction_id": refund_txn_id,
+            "refunded_at": payment.refunded_at.isoformat(),
+            "payment": PaymentSerializer(payment).data,
+            "appointment": AppointmentSerializer(appointment).data,
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get"], permission_classes=[IsAdminRole], url_path="pending-refunds")
+    def pending_refunds(self, request):
+        """
+        GET /api/appointments/pending-refunds/
+        Returns list of appointments with pending refund requests.
+        """
+        qs = Appointment.objects.filter(
+            payment_status=Appointment.PaymentStatus.REFUND_PENDING
+        ).select_related(
+            "patient__user", "slot__doctor__user", "slot__doctor__specialty", "payment"
+        ).order_by("-updated_at")
+        return Response(AppointmentSerializer(qs, many=True).data)
 
     @action(detail=True, methods=["post"])
     @transaction.atomic
@@ -871,7 +978,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 "patient": appointment.patient,
                 "doctor": appointment.slot.doctor,
                 "amount": doctor_fee,
-                "currency": "USD",
+                "currency": "INR",
                 "payment_method": method,
                 "transaction_id": txn_id,
                 "status": Payment.Status.COMPLETED,
@@ -886,12 +993,12 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         Notification.objects.create(
             user=appointment.patient.user,
             title="Payment Successful",
-            message=f"Consultation fee of ${doctor_fee} paid successfully (Txn: {txn_id}).",
+            message=f"Consultation fee of ₹{doctor_fee} paid successfully (Txn: {txn_id}).",
         )
         Notification.objects.create(
             user=appointment.slot.doctor.user,
             title="Consultation Fee Paid",
-            message=f"{appointment.patient.user.get_full_name()} paid the consultation fee of ${doctor_fee} for appointment on {appointment.date}.",
+            message=f"{appointment.patient.user.get_full_name()} paid the consultation fee of ₹{doctor_fee} for appointment on {appointment.date}.",
         )
 
         return Response(
@@ -930,6 +1037,9 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             "card_last4": payment.card_last4,
             "card_brand": payment.card_brand,
             "upi_id": payment.upi_id,
+            "refund_amount": str(payment.refund_amount),
+            "refund_transaction_id": payment.refund_transaction_id,
+            "refunded_at": payment.refunded_at.strftime("%Y-%m-%d %H:%M:%S") if payment.refunded_at else None,
             "patient": {
                 "name": appointment.patient.user.get_full_name() or appointment.patient.user.email,
                 "email": appointment.patient.user.email,
@@ -950,10 +1060,10 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             "hospital": {
                 "name": "CityCare Central Hospital",
                 "tagline": "Compassionate & Advanced Healthcare",
-                "address": "742 Evergreen Healthcare Ave, Medical District",
-                "support_phone": "+1 (800) 555-CARE",
-                "billing_email": "billing@citycarehospital.com",
-                "tax_id": "MED-TAX-2026-9812",
+                "address": "Healthcare Boulevard, Medical District",
+                "support_phone": "+91 (800) 555-CARE",
+                "billing_email": "billing@citycarehospital.in",
+                "tax_id": "GSTIN-29AAAAA0000A1Z5",
             },
         }
         return Response(receipt_data, status=status.HTTP_200_OK)

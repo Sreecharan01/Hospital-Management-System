@@ -57,12 +57,23 @@ export default function MyAppointments() {
   );
   const displayed = tab === 'upcoming' ? upcoming : past;
 
-  const handleCancel = async (id) => {
-    if (!confirm('Are you sure you want to cancel this appointment?')) return;
-    setActionLoading(id);
+  const handleCancel = async (appt) => {
+    const isPaid = appt.payment_status === 'PAID';
+    const refundHalf = (parseFloat(appt.doctor_fee || appt.payment?.amount || 0) * 0.5).toFixed(0);
+    const confirmMsg = isPaid
+      ? `Are you sure you want to cancel this appointment?\n\nAs per hospital policy, a 50% refund (₹${refundHalf}) will be initiated by the hospital administration to your account.`
+      : 'Are you sure you want to cancel this appointment?';
+
+    if (!confirm(confirmMsg)) return;
+
+    setActionLoading(appt.id);
     try {
-      await api.post(`/appointments/${id}/cancel/`);
-      toast.success('Appointment cancelled');
+      const { data } = await api.post(`/appointments/${appt.id}/cancel/`);
+      if (isPaid) {
+        toast.success(`Appointment cancelled. 50% refund (₹${refundHalf}) has been submitted to admin for processing.`);
+      } else {
+        toast.success('Appointment cancelled');
+      }
       fetchAppointments();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to cancel');
@@ -215,12 +226,22 @@ export default function MyAppointments() {
                       {appt.payment_status === 'PAID' ? (
                         <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                           <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          <span>Fee Paid (${parseFloat(appt.doctor_fee || appt.payment?.amount || 0).toFixed(0)})</span>
+                          <span>Fee Paid (₹{parseFloat(appt.doctor_fee || appt.payment?.amount || 0).toFixed(0)})</span>
+                        </span>
+                      ) : appt.payment_status === 'REFUND_PENDING' ? (
+                        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-300">
+                          <Clock className="w-3 h-3 text-amber-600" />
+                          <span>50% Refund Pending (₹{parseFloat(appt.refund_amount || appt.payment?.refund_amount || (appt.doctor_fee || 0) * 0.5).toFixed(0)})</span>
+                        </span>
+                      ) : appt.payment_status === 'REFUNDED' ? (
+                        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-50 text-purple-800 border border-purple-300">
+                          <CheckCircle2 className="w-3 h-3 text-purple-600" />
+                          <span>50% Refunded (₹{parseFloat(appt.refund_amount || appt.payment?.refund_amount || (appt.doctor_fee || 0) * 0.5).toFixed(0)})</span>
                         </span>
                       ) : (
                         appt.status !== 'CANCELLED' && (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                            Fee Unpaid (${parseFloat(appt.doctor_fee || 0).toFixed(0)})
+                            Fee Unpaid (₹{parseFloat(appt.doctor_fee || 0).toFixed(0)})
                           </span>
                         )
                       )}
@@ -248,7 +269,7 @@ export default function MyAppointments() {
                   {/* Actions */}
                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
                     {/* Payment & Receipt Actions */}
-                    {appt.payment_status === 'PAID' ? (
+                    {['PAID', 'REFUND_PENDING', 'REFUNDED'].includes(appt.payment_status) ? (
                       <button
                         onClick={() => handleOpenReceipt(appt.id)}
                         className="btn-secondary btn-sm text-xs flex items-center space-x-1 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200"
@@ -280,7 +301,7 @@ export default function MyAppointments() {
                           Reschedule
                         </button>
                         <button
-                          onClick={() => handleCancel(appt.id)}
+                          onClick={() => handleCancel(appt)}
                           disabled={actionLoading === appt.id}
                           className="btn-danger btn-sm text-xs"
                         >

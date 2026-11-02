@@ -219,7 +219,8 @@ class Appointment(models.Model):
     class PaymentStatus(models.TextChoices):
         UNPAID = "UNPAID", "Unpaid"
         PAID = "PAID", "Paid"
-        REFUNDED = "REFUNDED", "Refunded"
+        REFUND_PENDING = "REFUND_PENDING", "Refund Pending (50%)"
+        REFUNDED = "REFUNDED", "Refunded (50%)"
 
     status = models.CharField(
         max_length=20,
@@ -318,8 +319,9 @@ class Payment(models.Model):
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
         COMPLETED = "COMPLETED", "Completed"
+        REFUND_PENDING = "REFUND_PENDING", "Refund Pending (50%)"
+        REFUNDED = "REFUNDED", "Refunded (50%)"
         FAILED = "FAILED", "Failed"
-        REFUNDED = "REFUNDED", "Refunded"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     appointment = models.OneToOneField(
@@ -338,7 +340,7 @@ class Payment(models.Model):
         related_name="payments",
     )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
-    currency = models.CharField(max_length=10, default="USD")
+    currency = models.CharField(max_length=10, default="INR")
     payment_method = models.CharField(
         max_length=20,
         choices=Method.choices,
@@ -353,6 +355,9 @@ class Payment(models.Model):
     card_last4 = models.CharField(max_length=4, blank=True)
     card_brand = models.CharField(max_length=50, blank=True)
     upi_id = models.CharField(max_length=100, blank=True)
+    refund_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    refund_transaction_id = models.CharField(max_length=100, blank=True)
+    refunded_at = models.DateTimeField(null=True, blank=True)
     paid_at = models.DateTimeField(auto_now_add=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

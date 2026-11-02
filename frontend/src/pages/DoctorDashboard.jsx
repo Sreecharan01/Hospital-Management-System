@@ -267,7 +267,15 @@ export default function DoctorDashboard() {
                             <StatusBadge status={appt.status} />
                             {appt.payment_status === 'PAID' ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                ✓ Fee Paid (${parseFloat(appt.doctor_fee || 0).toFixed(0)})
+                                ✓ Fee Paid (₹{parseFloat(appt.doctor_fee || 0).toFixed(0)})
+                              </span>
+                            ) : appt.payment_status === 'REFUND_PENDING' ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-300">
+                                ⏳ 50% Refund Pending (₹{parseFloat(appt.refund_amount || (appt.doctor_fee || 0) * 0.5).toFixed(0)})
+                              </span>
+                            ) : appt.payment_status === 'REFUNDED' ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-purple-50 text-purple-800 border border-purple-300">
+                                ✓ 50% Refunded (₹{parseFloat(appt.refund_amount || (appt.doctor_fee || 0) * 0.5).toFixed(0)})
                               </span>
                             ) : (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">

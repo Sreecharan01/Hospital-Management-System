@@ -44,9 +44,19 @@ export default function ReceiptModal({ receipt, onClose }) {
               <p className="text-xs text-gray-500">Contact: {receipt.hospital?.support_phone || '+1 (800) 555-CARE'}</p>
             </div>
             <div className="text-right">
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                ✓ {receipt.status || 'PAID'}
-              </span>
+              {receipt.status === 'REFUND_PENDING' ? (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                  ⏳ 50% REFUND PENDING
+                </span>
+              ) : receipt.status === 'REFUNDED' ? (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-900 border border-purple-300">
+                  ✓ 50% REFUNDED
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  ✓ {receipt.status || 'PAID'}
+                </span>
+              )}
               <p className="text-xs font-mono font-bold text-gray-700 mt-2">#{receipt.receipt_number}</p>
               <p className="text-[11px] text-gray-400 mt-0.5">{receipt.paid_at}</p>
             </div>
@@ -88,20 +98,45 @@ export default function ReceiptModal({ receipt, onClose }) {
                     {receipt.appointment?.time || 'Scheduled slot'}
                   </td>
                   <td className="py-3 px-4 text-right font-bold text-gray-900">
-                    ${parseFloat(receipt.amount || 0).toFixed(2)}
+                    ₹{parseFloat(receipt.amount || 0).toFixed(2)}
                   </td>
                 </tr>
                 <tr className="bg-gray-50/50">
                   <td className="py-2 px-4 text-gray-500 text-[11px]">Electronic Tele-Registration & Tax</td>
                   <td className="py-2 px-4 text-gray-400">Included</td>
-                  <td className="py-2 px-4 text-right text-gray-500">$0.00</td>
+                  <td className="py-2 px-4 text-right text-gray-500">₹0.00</td>
                 </tr>
+                {receipt.refund_amount > 0 && (
+                  <>
+                    <tr className="bg-amber-50/40 text-amber-900 font-medium">
+                      <td className="py-2 px-4 text-[11px]">
+                        Cancellation 50% Refund ({receipt.status === 'REFUNDED' ? 'Refunded' : 'Pending Admin Initiation'})
+                      </td>
+                      <td className="py-2 px-4 text-amber-700 text-[11px]">50% Policy</td>
+                      <td className="py-2 px-4 text-right text-amber-800">
+                        -₹{parseFloat(receipt.refund_amount || 0).toFixed(2)}
+                      </td>
+                    </tr>
+                    <tr className="bg-gray-50/40 text-gray-500 text-[11px]">
+                      <td className="py-1.5 px-4">Hospital Retained Fee (50%)</td>
+                      <td className="py-1.5 px-4">Cancellation Fee</td>
+                      <td className="py-1.5 px-4 text-right">
+                        ₹{(parseFloat(receipt.amount || 0) - parseFloat(receipt.refund_amount || 0)).toFixed(2)}
+                      </td>
+                    </tr>
+                  </>
+                )}
               </tbody>
               <tfoot className="bg-emerald-50/60 border-t border-emerald-100 text-emerald-950 font-bold">
                 <tr>
-                  <td colSpan="2" className="py-3 px-4 text-sm">Total Paid</td>
+                  <td colSpan="2" className="py-3 px-4 text-sm">
+                    {receipt.refund_amount > 0 ? 'Total Net Paid (After 50% Refund)' : 'Total Paid'}
+                  </td>
                   <td className="py-3 px-4 text-right text-base text-emerald-700">
-                    ${parseFloat(receipt.amount || 0).toFixed(2)} {receipt.currency || 'USD'}
+                    ₹{receipt.refund_amount > 0
+                      ? (parseFloat(receipt.amount || 0) - parseFloat(receipt.refund_amount || 0)).toFixed(2)
+                      : parseFloat(receipt.amount || 0).toFixed(2)}{' '}
+                    {receipt.currency || 'INR'}
                   </td>
                 </tr>
               </tfoot>
@@ -117,6 +152,11 @@ export default function ReceiptModal({ receipt, onClose }) {
               )}
               {receipt.upi_id && (
                 <p className="text-[11px] text-blue-700">UPI ID: {receipt.upi_id}</p>
+              )}
+              {receipt.refund_transaction_id && (
+                <p className="text-[11px] text-purple-700 font-semibold mt-0.5">
+                  50% Refund Ref: {receipt.refund_transaction_id}
+                </p>
               )}
             </div>
             <div className="text-right">
@@ -157,3 +197,4 @@ export default function ReceiptModal({ receipt, onClose }) {
     </div>
   );
 }
+
