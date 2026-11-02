@@ -15,7 +15,7 @@ SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-fallback-key")
 
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0", "testserver", "*"]
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0", "testserver", ".vercel.app", "*"]
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +75,10 @@ WSGI_APPLICATION = "config.wsgi.application"
 # ---------------------------------------------------------------------------
 
 USE_SQLITE = os.getenv("USE_SQLITE", "False").lower() in ("true", "1", "yes")
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://neondb_owner:npg_NBZvnO8i4srh@ep-little-credit-a1mi4ghv-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+)
 
 if DATABASE_URL:
     from urllib.parse import urlparse, parse_qs
@@ -145,6 +148,7 @@ USE_TZ = True
 # ---------------------------------------------------------------------------
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
