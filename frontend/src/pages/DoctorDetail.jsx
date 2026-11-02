@@ -250,11 +250,10 @@ export default function DoctorDetail() {
                               setSelectedTime('');
                               setTimeSlots([]);
                             }}
-                            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
-                              selectedSlot?.id === slot.id
+                            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all border ${selectedSlot?.id === slot.id
                                 ? 'bg-primary-600 text-white border-primary-600 shadow-md shadow-primary-500/20'
                                 : 'bg-white text-gray-700 border-gray-200 hover:border-primary-300 hover:bg-primary-50'
-                            }`}
+                              }`}
                           >
                             {slot.start_time?.slice(0, 5)} – {slot.end_time?.slice(0, 5)}
                           </button>
@@ -332,13 +331,12 @@ export default function DoctorDetail() {
                               if (ts.available) setSelectedTime(ts.time);
                             }}
                             disabled={!ts.available}
-                            className={`px-2 py-2 rounded-lg text-sm font-medium transition-all border ${
-                              !ts.available
+                            className={`px-2 py-2 rounded-lg text-sm font-medium transition-all border ${!ts.available
                                 ? 'bg-red-50 text-red-300 border-red-100 cursor-not-allowed line-through'
                                 : selectedTime === ts.time
-                                ? 'bg-primary-600 text-white border-primary-600 shadow-md shadow-primary-500/20'
-                                : 'bg-white text-gray-700 border-gray-200 hover:border-primary-300 hover:bg-primary-50'
-                            }`}
+                                  ? 'bg-primary-600 text-white border-primary-600 shadow-md shadow-primary-500/20'
+                                  : 'bg-white text-gray-700 border-gray-200 hover:border-primary-300 hover:bg-primary-50'
+                              }`}
                             title={ts.available ? 'Available' : 'Already booked'}
                           >
                             {ts.time}
