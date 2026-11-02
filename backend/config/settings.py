@@ -242,3 +242,4 @@ EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "oaaxeopgtekpjdmr")
 DEFAULT_FROM_EMAIL = os.getenv(
     "DEFAULT_FROM_EMAIL", "CityCare Hospital <sreecharan831@gmail.com>"
 )
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", 8))

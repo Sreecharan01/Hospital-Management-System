@@ -15,7 +15,7 @@ import {
   ArrowLeft,
   Send,
   Award,
-  DollarSign,
+  Wallet,
   XCircle,
   CreditCard,
   ShieldCheck,
@@ -137,10 +137,20 @@ export default function DoctorDetail() {
         navigate('/appointments');
       }
     } catch (err) {
-      const msg =
-        err.response?.data?.detail ||
-        Object.values(err.response?.data || {}).flat().join(' ') ||
-        'Failed to book appointment';
+      let msg = 'Failed to book appointment';
+      const data = err.response?.data;
+      if (data) {
+        if (typeof data === 'string') {
+          msg = `Server error (${err.response?.status || 500}). Please try again.`;
+        } else if (data.detail) {
+          msg = data.detail;
+        } else if (typeof data === 'object') {
+          const vals = Object.values(data).flat().filter(Boolean);
+          if (vals.length > 0) msg = vals.join(' ');
+        }
+      } else if (err.message) {
+        msg = err.message;
+      }
       toast.error(msg);
       setShowPaymentModal(false);
     } finally {
@@ -196,7 +206,7 @@ export default function DoctorDetail() {
                     <span>{doctor.experience_years} years experience</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-sm text-gray-600">
-                    <DollarSign className="w-4 h-4 text-green-500" />
+                    <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 font-bold text-[11px] flex items-center justify-center">₹</span>
                     <span>₹{doctor.fee} consultation</span>
                   </div>
                 </div>
