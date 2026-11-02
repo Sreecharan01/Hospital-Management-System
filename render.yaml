@@ -17,4 +17,5 @@ services:
       - key: USE_SQLITE
         value: "False"
       - key: DATABASE_URL
-        value: postgresql://neondb_owner:npg_NBZvnO8i4srh@ep-little-credit-a1mi4ghv-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+        value: postgresql://neondb_owner:npg_XHI0r3VbNdEp@ep-blue-voice-bdo8rwfb-pooler.c-8.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+

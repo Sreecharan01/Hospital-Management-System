@@ -80,7 +80,7 @@ USE_SQLITE = os.getenv("USE_SQLITE", "False").lower() in ("true", "1", "yes")
 TESTING = "test" in sys.argv
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://neondb_owner:npg_NBZvnO8i4srh@ep-little-credit-a1mi4ghv-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+    "postgresql://neondb_owner:npg_XHI0r3VbNdEp@ep-blue-voice-bdo8rwfb-pooler.c-8.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
 )
 
 if TESTING or USE_SQLITE:
