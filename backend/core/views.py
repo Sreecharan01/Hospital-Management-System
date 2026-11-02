@@ -30,6 +30,7 @@ from .models import (
     MedicalRecord,
     Notification,
     PatientProfile,
+    Payment,
     Specialty,
 )
 from .permissions import IsAdminRole, IsDoctor, IsPatient, IsOwnerOrAdmin
@@ -45,6 +46,7 @@ from .serializers import (
     MedicalRecordSerializer,
     MeUpdateSerializer,
     NotificationSerializer,
+    PaymentSerializer,
     RegisterSerializer,
     SpecialtySerializer,
     SpecialtyWriteSerializer,
@@ -419,6 +421,43 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         doctor_user = appointment.slot.doctor.user
         doctor_name = doctor_user.get_full_name()
         patient_name = request.user.get_full_name()
+        doctor_fee = appointment.slot.doctor.fee
+
+        # Handle immediate online payment if provided
+        payment_info = request.data.get("payment")
+        if payment_info:
+            method = payment_info.get("payment_method", Payment.Method.CARD)
+            card_last4 = str(payment_info.get("card_last4", "4242"))[-4:]
+            card_brand = payment_info.get("card_brand", "Visa")
+            upi_id = payment_info.get("upi_id", "")
+            txn_id = f"TXN-{uuid.uuid4().hex[:10].upper()}"
+
+            Payment.objects.create(
+                appointment=appointment,
+                patient=patient_profile,
+                doctor=appointment.slot.doctor,
+                amount=doctor_fee,
+                currency="USD",
+                payment_method=method,
+                transaction_id=txn_id,
+                status=Payment.Status.COMPLETED,
+                card_last4=card_last4,
+                card_brand=card_brand,
+                upi_id=upi_id,
+            )
+            appointment.payment_status = Appointment.PaymentStatus.PAID
+            appointment.save(update_fields=["payment_status"])
+
+            Notification.objects.create(
+                user=request.user,
+                title="Payment Received",
+                message=f"Consultation fee of ${doctor_fee} paid successfully (Txn: {txn_id}).",
+            )
+            Notification.objects.create(
+                user=doctor_user,
+                title="Fee Paid Online",
+                message=f"{patient_name} paid the consultation fee of ${doctor_fee} for your appointment on {appt_date}.",
+            )
 
         # In-app notifications
         Notification.objects.bulk_create([
@@ -798,6 +837,127 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             "times": intervals,
         })
 
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def pay(self, request, pk=None):
+        """
+        POST /api/appointments/{id}/pay/
+        Pay doctor consultation fee for an existing appointment.
+        """
+        appointment = self.get_object()
+        self._assert_appointment_ownership(appointment, request.user)
+
+        if appointment.payment_status == Appointment.PaymentStatus.PAID:
+            return Response(
+                {"detail": "This appointment consultation fee is already paid."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if appointment.status == Appointment.Status.CANCELLED:
+            return Response(
+                {"detail": "Cannot pay for a cancelled appointment."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        doctor_fee = appointment.slot.doctor.fee
+        payment_data = request.data or {}
+        method = payment_data.get("payment_method", Payment.Method.CARD)
+        card_last4 = str(payment_data.get("card_last4", "4242"))[-4:]
+        card_brand = payment_data.get("card_brand", "Visa")
+        upi_id = payment_data.get("upi_id", "")
+        txn_id = f"TXN-{uuid.uuid4().hex[:10].upper()}"
+
+        payment, _ = Payment.objects.update_or_create(
+            appointment=appointment,
+            defaults={
+                "patient": appointment.patient,
+                "doctor": appointment.slot.doctor,
+                "amount": doctor_fee,
+                "currency": "USD",
+                "payment_method": method,
+                "transaction_id": txn_id,
+                "status": Payment.Status.COMPLETED,
+                "card_last4": card_last4,
+                "card_brand": card_brand,
+                "upi_id": upi_id,
+            },
+        )
+        appointment.payment_status = Appointment.PaymentStatus.PAID
+        appointment.save(update_fields=["payment_status"])
+
+        Notification.objects.create(
+            user=appointment.patient.user,
+            title="Payment Successful",
+            message=f"Consultation fee of ${doctor_fee} paid successfully (Txn: {txn_id}).",
+        )
+        Notification.objects.create(
+            user=appointment.slot.doctor.user,
+            title="Consultation Fee Paid",
+            message=f"{appointment.patient.user.get_full_name()} paid the consultation fee of ${doctor_fee} for appointment on {appointment.date}.",
+        )
+
+        return Response(
+            {
+                "detail": "Payment successful!",
+                "payment": PaymentSerializer(payment).data,
+                "receipt_url": f"/api/appointments/{appointment.id}/receipt/",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["get"], permission_classes=[IsAuthenticated])
+    def receipt(self, request, pk=None):
+        """
+        GET /api/appointments/{id}/receipt/
+        Returns full official consultation invoice / receipt details.
+        """
+        appointment = self.get_object()
+        self._assert_appointment_ownership(appointment, request.user)
+
+        if not hasattr(appointment, "payment") or not appointment.payment:
+            return Response(
+                {"detail": "No payment record found for this appointment."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        payment = appointment.payment
+        receipt_data = {
+            "receipt_number": f"REC-{payment.transaction_id.replace('TXN-', '')}",
+            "transaction_id": payment.transaction_id,
+            "paid_at": payment.paid_at.strftime("%Y-%m-%d %H:%M:%S") if payment.paid_at else str(payment.created_at),
+            "amount": str(payment.amount),
+            "currency": payment.currency,
+            "payment_method": payment.get_payment_method_display(),
+            "status": payment.status,
+            "card_last4": payment.card_last4,
+            "card_brand": payment.card_brand,
+            "upi_id": payment.upi_id,
+            "patient": {
+                "name": appointment.patient.user.get_full_name() or appointment.patient.user.email,
+                "email": appointment.patient.user.email,
+                "phone": appointment.patient.phone or "N/A",
+                "blood_group": appointment.patient.blood_group or "N/A",
+            },
+            "doctor": {
+                "name": f"Dr. {appointment.slot.doctor.user.get_full_name() or appointment.slot.doctor.user.email}",
+                "specialty": appointment.slot.doctor.specialty.name if appointment.slot.doctor.specialty else "General Consultation",
+                "email": appointment.slot.doctor.user.email,
+            },
+            "appointment": {
+                "id": str(appointment.id),
+                "date": str(appointment.date),
+                "time": appointment.appointment_time.strftime("%H:%M") if appointment.appointment_time else "",
+                "status": appointment.status,
+            },
+            "hospital": {
+                "name": "CityCare Central Hospital",
+                "tagline": "Compassionate & Advanced Healthcare",
+                "address": "742 Evergreen Healthcare Ave, Medical District",
+                "support_phone": "+1 (800) 555-CARE",
+                "billing_email": "billing@citycarehospital.com",
+                "tax_id": "MED-TAX-2026-9812",
+            },
+        }
+        return Response(receipt_data, status=status.HTTP_200_OK)
+
 
 # ---------------------------------------------------------------------------
 # Medical Record
@@ -893,6 +1053,30 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     def mark_all_read(self, request):
         count = request.user.notifications.filter(is_read=False).update(is_read=True)
         return Response({"marked_read": count})
+
+
+# ---------------------------------------------------------------------------
+# Payment ViewSet
+# ---------------------------------------------------------------------------
+
+class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    GET /api/payments/      - list payments for user
+    GET /api/payments/{id}/ - payment detail
+    """
+    serializer_class = PaymentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Payment.objects.select_related(
+            "appointment", "patient__user", "doctor__user", "doctor__specialty"
+        )
+        if user.role == "PATIENT":
+            return qs.filter(patient__user=user)
+        elif user.role == "DOCTOR":
+            return qs.filter(doctor__user=user)
+        return qs
 
 
 # ===========================================================================

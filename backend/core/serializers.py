@@ -21,6 +21,7 @@ from .models import (
     Appointment,
     MedicalRecord,
     Notification,
+    Payment,
 )
 
 User = get_user_model()
@@ -440,14 +441,16 @@ class AppointmentSerializer(serializers.ModelSerializer):
     patient_name = serializers.SerializerMethodField()
     patient_email = serializers.SerializerMethodField()
     has_medical_record = serializers.SerializerMethodField()
+    doctor_fee = serializers.SerializerMethodField()
+    payment = serializers.SerializerMethodField()
 
     class Meta:
         model = Appointment
         fields = [
             "id", "patient", "slot", "date",
-            "appointment_time", "status", "reason",
+            "appointment_time", "status", "payment_status", "reason",
             "patient_name", "patient_email",
-            "has_medical_record",
+            "has_medical_record", "doctor_fee", "payment",
             "created_at", "updated_at",
         ]
 
@@ -459,6 +462,52 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
     def get_has_medical_record(self, obj):
         return hasattr(obj, "medical_record") and obj.medical_record is not None
+
+    def get_doctor_fee(self, obj):
+        if obj.slot and obj.slot.doctor:
+            return str(obj.slot.doctor.fee)
+        return "0.00"
+
+    def get_payment(self, obj):
+        if hasattr(obj, "payment") and obj.payment:
+            p = obj.payment
+            return {
+                "id": str(p.id),
+                "transaction_id": p.transaction_id,
+                "amount": str(p.amount),
+                "currency": p.currency,
+                "payment_method": p.payment_method,
+                "status": p.status,
+                "card_last4": p.card_last4,
+                "card_brand": p.card_brand,
+                "upi_id": p.upi_id,
+                "paid_at": p.paid_at.isoformat() if p.paid_at else None,
+            }
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Payment
+# ---------------------------------------------------------------------------
+
+class PaymentSerializer(serializers.ModelSerializer):
+    patient_name = serializers.CharField(source="patient.user.get_full_name", read_only=True)
+    doctor_name = serializers.CharField(source="doctor.user.get_full_name", read_only=True)
+    doctor_specialty = serializers.CharField(source="doctor.specialty.name", read_only=True, default="")
+    appointment_date = serializers.DateField(source="appointment.date", read_only=True)
+    appointment_time = serializers.TimeField(source="appointment.appointment_time", read_only=True)
+
+    class Meta:
+        model = Payment
+        fields = [
+            "id", "appointment", "patient", "doctor",
+            "patient_name", "doctor_name", "doctor_specialty",
+            "appointment_date", "appointment_time",
+            "amount", "currency", "payment_method",
+            "transaction_id", "status", "card_last4",
+            "card_brand", "upi_id", "paid_at", "created_at",
+        ]
+        read_only_fields = ["id", "transaction_id", "status", "paid_at", "created_at"]
 
 
 

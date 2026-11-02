@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import api from '../api/axios';
 import LoadingSpinner from '../components/LoadingSpinner';
 import StatusBadge from '../components/StatusBadge';
+import PaymentModal from '../components/PaymentModal';
+import ReceiptModal from '../components/ReceiptModal';
 import toast from 'react-hot-toast';
 import {
   Calendar,
@@ -10,6 +12,9 @@ import {
   RefreshCw,
   Stethoscope,
   X,
+  CreditCard,
+  FileText,
+  CheckCircle2,
 } from 'lucide-react';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -24,6 +29,9 @@ export default function MyAppointments() {
   const [rescheduleTimeSlots, setRescheduleTimeSlots] = useState([]);
   const [loadingTimes, setLoadingTimes] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
+  const [paymentModalAppt, setPaymentModalAppt] = useState(null);
+  const [receiptModalData, setReceiptModalData] = useState(null);
+  const [paying, setPaying] = useState(false);
 
   const fetchAppointments = async () => {
     try {
@@ -60,6 +68,37 @@ export default function MyAppointments() {
       toast.error(err.response?.data?.detail || 'Failed to cancel');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleOpenReceipt = async (apptId) => {
+    try {
+      const { data } = await api.get(`/appointments/${apptId}/receipt/`);
+      setReceiptModalData(data);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Receipt not available yet.');
+    }
+  };
+
+  const handleConfirmOnlinePayment = async (paymentPayload) => {
+    if (!paymentModalAppt) return;
+    setPaying(true);
+    try {
+      const { data } = await api.post(`/appointments/${paymentModalAppt.id}/pay/`, paymentPayload);
+      toast.success('Consultation fee paid successfully!');
+      setPaymentModalAppt(null);
+      fetchAppointments();
+      // Fetch and open receipt
+      try {
+        const { data: recData } = await api.get(`/appointments/${paymentModalAppt.id}/receipt/`);
+        setReceiptModalData(recData);
+      } catch {
+        // Receipt fetch optional
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Payment failed. Please try again.');
+    } finally {
+      setPaying(false);
     }
   };
 
@@ -173,6 +212,18 @@ export default function MyAppointments() {
                         Dr. {doctorName}
                       </p>
                       <StatusBadge status={appt.status} />
+                      {appt.payment_status === 'PAID' ? (
+                        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span>Fee Paid (${parseFloat(appt.doctor_fee || appt.payment?.amount || 0).toFixed(0)})</span>
+                        </span>
+                      ) : (
+                        appt.status !== 'CANCELLED' && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                            Fee Unpaid (${parseFloat(appt.doctor_fee || 0).toFixed(0)})
+                          </span>
+                        )
+                      )}
                     </div>
                     {specialty && (
                       <p className="text-xs text-gray-400 mt-0.5 ml-6">{specialty}</p>
@@ -195,26 +246,50 @@ export default function MyAppointments() {
                   </div>
 
                   {/* Actions */}
-                  {tab === 'upcoming' && (
-                    <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                    {/* Payment & Receipt Actions */}
+                    {appt.payment_status === 'PAID' ? (
                       <button
-                        onClick={() => openReschedule(appt)}
-                        disabled={actionLoading === appt.id}
-                        className="btn-secondary btn-sm text-xs"
+                        onClick={() => handleOpenReceipt(appt.id)}
+                        className="btn-secondary btn-sm text-xs flex items-center space-x-1 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200"
+                        title="View & Print Official Receipt"
                       >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        Reschedule
+                        <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Receipt</span>
                       </button>
-                      <button
-                        onClick={() => handleCancel(appt.id)}
-                        disabled={actionLoading === appt.id}
-                        className="btn-danger btn-sm text-xs"
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                        Cancel
-                      </button>
-                    </div>
-                  )}
+                    ) : (
+                      appt.status !== 'CANCELLED' && (
+                        <button
+                          onClick={() => setPaymentModalAppt(appt)}
+                          className="btn-primary btn-sm text-xs flex items-center space-x-1 shadow-sm"
+                        >
+                          <CreditCard className="w-3.5 h-3.5" />
+                          <span>Pay Fee</span>
+                        </button>
+                      )
+                    )}
+
+                    {tab === 'upcoming' && (
+                      <>
+                        <button
+                          onClick={() => openReschedule(appt)}
+                          disabled={actionLoading === appt.id}
+                          className="btn-secondary btn-sm text-xs"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          Reschedule
+                        </button>
+                        <button
+                          onClick={() => handleCancel(appt.id)}
+                          disabled={actionLoading === appt.id}
+                          className="btn-danger btn-sm text-xs"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          Cancel
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -319,6 +394,29 @@ export default function MyAppointments() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Interactive Payment Gateway Modal */}
+      {paymentModalAppt && (
+        <PaymentModal
+          isOpen={!!paymentModalAppt}
+          onClose={() => setPaymentModalAppt(null)}
+          amount={paymentModalAppt.doctor_fee || paymentModalAppt.slot?.doctor?.fee || 100}
+          doctorName={`Dr. ${paymentModalAppt.slot?.doctor?.full_name || ''}`}
+          specialty={paymentModalAppt.slot?.doctor?.specialty?.name}
+          appointmentDate={paymentModalAppt.date}
+          appointmentTime={paymentModalAppt.appointment_time?.slice(0, 5) || paymentModalAppt.slot?.start_time?.slice(0, 5)}
+          onConfirmPayment={handleConfirmOnlinePayment}
+          loading={paying}
+        />
+      )}
+
+      {/* Official Printable Receipt Modal */}
+      {receiptModalData && (
+        <ReceiptModal
+          receipt={receiptModalData}
+          onClose={() => setReceiptModalData(null)}
+        />
       )}
     </div>
   );

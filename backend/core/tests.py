@@ -772,4 +772,40 @@ class TenMinuteIntervalBookingTest(BaseTestCase):
         self.assertIn("09:20", times)
         self.assertTrue(times["09:20"])
 
+    def test_payment_for_appointment(self):
+        """Patient can pay doctor consultation fee online and fetch receipt."""
+        self.client.force_authenticate(user=self.patient1_user)
+        r = self.client.post(
+            reverse("appointment-list"),
+            data={
+                "slot": str(self.slot.id),
+                "date": str(self.next_monday),
+                "appointment_time": "09:00",
+            },
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        appt_id = r.data["id"]
+
+        # Pay for appointment
+        pay_res = self.client.post(
+            f"/api/appointments/{appt_id}/pay/",
+            data={
+                "payment_method": "CARD",
+                "card_last4": "4242",
+                "card_brand": "Visa",
+            },
+            format="json",
+        )
+        self.assertEqual(pay_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(pay_res.data["payment"]["status"], "COMPLETED")
+        self.assertEqual(pay_res.data["payment"]["amount"], "100.00")
+
+        # Fetch receipt
+        rec_res = self.client.get(f"/api/appointments/{appt_id}/receipt/")
+        self.assertEqual(rec_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(rec_res.data["amount"], "100.00")
+        self.assertIn("REC-", rec_res.data["receipt_number"])
+
+
 

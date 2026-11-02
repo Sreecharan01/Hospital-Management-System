@@ -26,6 +26,7 @@ router.register("slots", views.AvailabilitySlotViewSet, basename="slot")
 router.register("appointments", views.AppointmentViewSet, basename="appointment")
 router.register("records", views.MedicalRecordViewSet, basename="record")
 router.register("notifications", views.NotificationViewSet, basename="notification")
+router.register("payments", views.PaymentViewSet, basename="payment")
 
 urlpatterns = [
     # Health check

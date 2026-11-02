@@ -265,6 +265,15 @@ export default function DoctorDashboard() {
                               {appt.patient_name || appt.patient_email || 'Patient'}
                             </p>
                             <StatusBadge status={appt.status} />
+                            {appt.payment_status === 'PAID' ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                ✓ Fee Paid (${parseFloat(appt.doctor_fee || 0).toFixed(0)})
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                Fee Unpaid
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
                             <span className="flex items-center gap-1">

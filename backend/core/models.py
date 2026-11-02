@@ -216,10 +216,20 @@ class Appointment(models.Model):
     appointment_time = models.TimeField(
         help_text="Specific 10-minute time slot within the availability window.",
     )
+    class PaymentStatus(models.TextChoices):
+        UNPAID = "UNPAID", "Unpaid"
+        PAID = "PAID", "Paid"
+        REFUNDED = "REFUNDED", "Refunded"
+
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
         default=Status.PENDING,
+    )
+    payment_status = models.CharField(
+        max_length=20,
+        choices=PaymentStatus.choices,
+        default=PaymentStatus.UNPAID,
     )
     reason = models.TextField(blank=True)
     reminder_sent = models.BooleanField(
@@ -292,3 +302,63 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"Notification '{self.title}' → {self.user.email}"
+
+
+# ---------------------------------------------------------------------------
+# Payment
+# ---------------------------------------------------------------------------
+
+class Payment(models.Model):
+    class Method(models.TextChoices):
+        CARD = "CARD", "Credit / Debit Card"
+        UPI = "UPI", "UPI / QR Code"
+        NETBANKING = "NETBANKING", "Net Banking"
+        WALLET = "WALLET", "Digital Wallet"
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        COMPLETED = "COMPLETED", "Completed"
+        FAILED = "FAILED", "Failed"
+        REFUNDED = "REFUNDED", "Refunded"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    appointment = models.OneToOneField(
+        Appointment,
+        on_delete=models.CASCADE,
+        related_name="payment",
+    )
+    patient = models.ForeignKey(
+        PatientProfile,
+        on_delete=models.CASCADE,
+        related_name="payments",
+    )
+    doctor = models.ForeignKey(
+        DoctorProfile,
+        on_delete=models.CASCADE,
+        related_name="payments",
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    currency = models.CharField(max_length=10, default="USD")
+    payment_method = models.CharField(
+        max_length=20,
+        choices=Method.choices,
+        default=Method.CARD,
+    )
+    transaction_id = models.CharField(max_length=100, unique=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.COMPLETED,
+    )
+    card_last4 = models.CharField(max_length=4, blank=True)
+    card_brand = models.CharField(max_length=50, blank=True)
+    upi_id = models.CharField(max_length=100, blank=True)
+    paid_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Payment {self.transaction_id} – {self.amount} {self.currency} [{self.status}]"
+

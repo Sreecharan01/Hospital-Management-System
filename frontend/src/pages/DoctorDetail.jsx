@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { useAuth } from '../contexts/AuthContext';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PaymentModal from '../components/PaymentModal';
+import ReceiptModal from '../components/ReceiptModal';
 import toast from 'react-hot-toast';
 import {
   Stethoscope,
@@ -15,6 +17,8 @@ import {
   Award,
   DollarSign,
   XCircle,
+  CreditCard,
+  ShieldCheck,
 } from 'lucide-react';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -33,6 +37,8 @@ export default function DoctorDetail() {
   const [booking, setBooking] = useState(false);
   const [timeSlots, setTimeSlots] = useState([]);
   const [loadingTimes, setLoadingTimes] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [completedReceipt, setCompletedReceipt] = useState(null);
 
   useEffect(() => {
     const fetchDoctor = async () => {
@@ -93,7 +99,7 @@ export default function DoctorDetail() {
     return d.toISOString().split('T')[0];
   };
 
-  const handleBook = async () => {
+  const handleBook = () => {
     if (!selectedSlot || !selectedDate || !selectedTime) {
       toast.error('Please select a slot, date, and time');
       return;
@@ -107,22 +113,36 @@ export default function DoctorDetail() {
       toast.error('Only patients can book appointments');
       return;
     }
+    setShowPaymentModal(true);
+  };
 
+  const handleConfirmPayment = async (paymentPayload) => {
     setBooking(true);
     try {
-      await api.post('/appointments/', {
+      const { data } = await api.post('/appointments/', {
         slot: selectedSlot.id,
         date: selectedDate,
         appointment_time: selectedTime,
         reason,
+        payment: paymentPayload,
       });
-      toast.success('Appointment booked successfully!');
-      navigate('/appointments');
+      setShowPaymentModal(false);
+      toast.success('Appointment booked & Fee paid successfully!');
+
+      // Fetch official receipt
+      try {
+        const { data: recData } = await api.get(`/appointments/${data.id}/receipt/`);
+        setCompletedReceipt(recData);
+      } catch {
+        navigate('/appointments');
+      }
     } catch (err) {
-      const msg = err.response?.data?.detail ||
+      const msg =
+        err.response?.data?.detail ||
         Object.values(err.response?.data || {}).flat().join(' ') ||
         'Failed to book appointment';
       toast.error(msg);
+      setShowPaymentModal(false);
     } finally {
       setBooking(false);
     }
@@ -343,18 +363,35 @@ export default function DoctorDetail() {
                   />
                 </div>
 
+                {/* Fee & Payment Breakdown */}
+                <div className="bg-emerald-50/80 border border-emerald-200/70 rounded-xl p-3.5 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-emerald-900 font-bold block">Consultation Fee</span>
+                    <span className="text-[11px] text-emerald-700 flex items-center space-x-1">
+                      <ShieldCheck className="w-3.5 h-3.5 inline text-emerald-600" />
+                      <span>Online Payment Gateway</span>
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xl font-black text-emerald-700">
+                      ${parseFloat(doctor?.fee || 0).toFixed(2)}
+                    </span>
+                    <span className="text-[10px] text-emerald-600 block">USD</span>
+                  </div>
+                </div>
+
                 <button
                   id="book-appointment-btn"
                   onClick={handleBook}
                   disabled={!selectedDate || !selectedTime || booking}
-                  className="btn-primary w-full py-3"
+                  className="btn-primary w-full py-3.5 flex items-center justify-center space-x-2 text-sm font-bold shadow-md shadow-primary-600/20"
                 >
                   {booking ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
                     <>
-                      <Send className="w-4 h-4" />
-                      Book at {selectedTime || '...'}
+                      <CreditCard className="w-4 h-4" />
+                      <span>Pay ${parseFloat(doctor?.fee || 0).toFixed(2)} & Book</span>
                     </>
                   )}
                 </button>
@@ -368,6 +405,30 @@ export default function DoctorDetail() {
           </div>
         </div>
       </div>
+
+      {/* Interactive Payment Gateway Modal */}
+      <PaymentModal
+        isOpen={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        amount={doctor?.fee}
+        doctorName={`Dr. ${doctor?.full_name || doctor?.user?.first_name || ''}`}
+        specialty={doctor?.specialty_name || doctor?.specialty?.name}
+        appointmentDate={selectedDate}
+        appointmentTime={selectedTime}
+        onConfirmPayment={handleConfirmPayment}
+        loading={booking}
+      />
+
+      {/* Official Printable Receipt Modal */}
+      {completedReceipt && (
+        <ReceiptModal
+          receipt={completedReceipt}
+          onClose={() => {
+            setCompletedReceipt(null);
+            navigate('/appointments');
+          }}
+        />
+      )}
     </div>
   );
 }
