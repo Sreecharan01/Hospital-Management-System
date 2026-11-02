@@ -482,30 +482,69 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             ),
         ])
 
-        # Async email notifications (wrapped – Redis/Celery may not be running in dev)
-        try:
-            send_appointment_email.apply_async(args=[
-                request.user.email,
-                "Appointment Request Submitted – Hospital",
-                (
-                    f"Dear {patient_name},\n\n"
-                    f"Your appointment request with Dr. {doctor_name} has been submitted.\n"
-                    f"Date: {appt_date}\nTime: {appt_time.strftime('%H:%M')}\n\n"
-                    f"You will be notified once the doctor confirms your booking.\n\nHospital Team"
-                ),
-            ])
-            send_appointment_email.apply_async(args=[
-                doctor_user.email,
-                "New Appointment Request – Hospital",
-                (
-                    f"Dear Dr. {doctor_name},\n\n"
-                    f"A new appointment has been requested by {patient_name}.\n"
-                    f"Date: {appt_date}\nTime: {appt_time.strftime('%H:%M')}\n\n"
-                    f"Please log in to confirm or decline this booking.\n\nHospital Team"
-                ),
-            ])
-        except Exception as exc:
-            logger.warning("Could not queue email tasks: %s", exc)
+        # Email notifications to Patient and Doctor on booking
+        doctor_specialty = (
+            slot.doctor.specialty.name if slot.doctor.specialty else "General Medicine"
+        )
+        if payment_info:
+            pay_desc = (
+                f"PAYMENT DETAILS:\n"
+                f"• Consultation Fee Paid: ₹{doctor_fee} INR\n"
+                f"• Payment Method: {method}\n"
+                f"• Transaction ID: {txn_id}\n"
+                f"• Status: Paid Online\n"
+            )
+        else:
+            pay_desc = (
+                f"PAYMENT DETAILS:\n"
+                f"• Consultation Fee: ₹{doctor_fee} INR\n"
+                f"• Status: Unpaid (You can pay online anytime from 'My Appointments')\n"
+            )
+
+        patient_booking_body = (
+            f"Dear {patient_name},\n\n"
+            f"Thank you for booking an appointment with CityCare Central Hospital.\n"
+            f"Your booking has been successfully recorded.\n\n"
+            f"BOOKING & ACCOUNT DETAILS:\n"
+            f"• Logged-in Account Email: {request.user.email}\n"
+            f"• Patient Name: {patient_name}\n"
+            f"• Consulting Doctor: Dr. {doctor_name} ({doctor_specialty})\n"
+            f"• Scheduled Date: {appt_date}\n"
+            f"• Scheduled Time: {appt_time.strftime('%H:%M')}\n"
+            f"• Current Status: {appointment.status}\n\n"
+            f"{pay_desc}\n"
+            f"Note: This booking confirmation has been sent directly to your account email: {request.user.email}.\n\n"
+            f"You can view, reschedule, or cancel this appointment anytime by logging in at:\n"
+            f"https://hospital-management-system-alpha-olive.vercel.app/appointments\n\n"
+            f"Warm regards,\n"
+            f"CityCare Central Hospital Team\n"
+            f"Helpline: +91 1800-123-4567 | Email: care@citycarehospital.in\n"
+        )
+
+        doctor_booking_body = (
+            f"Dear Dr. {doctor_name},\n\n"
+            f"A new appointment has been scheduled with you:\n\n"
+            f"• Patient Name: {patient_name}\n"
+            f"• Patient Account Email: {request.user.email}\n"
+            f"• Date: {appt_date}\n"
+            f"• Time: {appt_time.strftime('%H:%M')}\n"
+            f"• Reason for Visit: {appointment.reason or 'General Consultation'}\n\n"
+            f"You can view and manage this appointment on your Doctor Dashboard:\n"
+            f"https://hospital-management-system-alpha-olive.vercel.app/doctor/dashboard\n\n"
+            f"Regards,\n"
+            f"CityCare Central Hospital Scheduling Desk\n"
+        )
+
+        safe_dispatch_email(
+            request.user.email,
+            "Appointment Booking Confirmation – CityCare Central Hospital",
+            patient_booking_body,
+        )
+        safe_dispatch_email(
+            doctor_user.email,
+            f"New Appointment Booking: {patient_name} – CityCare Central Hospital",
+            doctor_booking_body,
+        )
 
         return Response(
             AppointmentSerializer(appointment).data,
@@ -559,21 +598,28 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             ),
         )
 
-        # Async email to patient
-        try:
-            patient_name = appointment.patient.user.get_full_name()
-            send_appointment_email.apply_async(args=[
-                appointment.patient.user.email,
-                "Appointment Confirmed – Hospital",
-                (
-                    f"Dear {patient_name},\n\n"
-                    f"Your appointment with Dr. {request.user.get_full_name()} has been confirmed.\n"
-                    f"Date: {appointment.date}\nTime: {appointment.slot.start_time:%H:%M}\n\n"
-                    f"Please arrive 10 minutes early.\n\nHospital Team"
-                ),
-            ])
-        except Exception as exc:
-            logger.warning("Could not queue confirmation email: %s", exc)
+        # Email to patient on doctor confirmation
+        patient_name = appointment.patient.user.get_full_name() or appointment.patient.user.email
+        doctor_name = request.user.get_full_name() or request.user.email
+        confirm_email_body = (
+            f"Dear {patient_name},\n\n"
+            f"Good news! Your appointment with Dr. {doctor_name} has been CONFIRMED.\n\n"
+            f"APPOINTMENT DETAILS:\n"
+            f"• Logged-in Account Email: {appointment.patient.user.email}\n"
+            f"• Consulting Doctor: Dr. {doctor_name}\n"
+            f"• Date: {appointment.date}\n"
+            f"• Time: {appointment.slot.start_time:%H:%M}\n"
+            f"• Status: CONFIRMED\n\n"
+            f"Please arrive at the clinic 10 minutes prior to your scheduled slot.\n\n"
+            f"Note: This confirmation was delivered to your registered login email: {appointment.patient.user.email}.\n\n"
+            f"Warm regards,\n"
+            f"CityCare Central Hospital Team\n"
+        )
+        safe_dispatch_email(
+            appointment.patient.user.email,
+            "Appointment Confirmed – CityCare Central Hospital",
+            confirm_email_body,
+        )
 
         return Response(AppointmentSerializer(appointment).data)
 

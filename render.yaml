@@ -18,4 +18,17 @@ services:
         value: "False"
       - key: DATABASE_URL
         value: postgresql://neondb_owner:npg_XHI0r3VbNdEp@ep-blue-voice-bdo8rwfb-pooler.c-8.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
-
+      - key: EMAIL_BACKEND
+        value: django.core.mail.backends.smtp.EmailBackend
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_USE_TLS
+        value: "True"
+      - key: EMAIL_HOST_USER
+        value: sreecharan831@gmail.com
+      - key: EMAIL_HOST_PASSWORD
+        value: oaaxeopgtekpjdmr
+      - key: DEFAULT_FROM_EMAIL
+        value: CityCare Hospital <sreecharan831@gmail.com>
