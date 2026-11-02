@@ -4,7 +4,7 @@ const API_BASE_URL =
   import.meta.env.VITE_API_URL ||
   (import.meta.env.DEV
     ? 'http://localhost:8000/api'
-    : 'https://hospital-management-system-alpha-olive.vercel.app/api');
+    : 'https://hospital-management-api-c8y9.onrender.com/api');
 
 const api = axios.create({
   baseURL: API_BASE_URL,
