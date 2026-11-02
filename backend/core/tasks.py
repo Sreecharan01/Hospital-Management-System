@@ -66,6 +66,23 @@ def send_appointment_email(recipient: str, subject: str, body: str):
     return {"recipient": recipient, "sent": ok}
 
 
+def safe_dispatch_email(recipient: str, subject: str, body: str) -> bool:
+    """
+    Dispatch email to recipient. If Celery eager is enabled or Celery is unavailable,
+    sends synchronously using _safe_send. Never raises an unhandled exception.
+    """
+    if not recipient:
+        return False
+    try:
+        if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", True):
+            return _safe_send(subject, body, recipient)
+        send_appointment_email.apply_async(args=[recipient, subject, body])
+        return True
+    except Exception as exc:
+        logger.warning("safe_dispatch_email Celery queue failed, falling back to direct send: %s", exc)
+        return _safe_send(subject, body, recipient)
+
+
 
 @shared_task(name="core.tasks.send_appointment_reminder", bind=True, max_retries=2)
 def send_appointment_reminder(self):

@@ -847,6 +847,54 @@ class TenMinuteIntervalBookingTest(BaseTestCase):
         self.assertEqual(refund_res.data["refund_amount"], "50.00")
         self.assertIn("REF-", refund_res.data["refund_transaction_id"])
         self.assertEqual(refund_res.data["payment"]["status"], "REFUNDED")
+    def test_cancellation_and_completion_emails_sent_to_user_login_email(self):
+        """Verify that cancellation and completion send emails containing user login email."""
+        from django.core import mail
 
+        # 1. Test Cancellation Email
+        mail.outbox = []
+        self.client.force_authenticate(user=self.patient1_user)
+        book_res = self.client.post('/api/appointments/', data={
+            'slot': str(self.slot.id),
+            'date': str(self.next_monday),
+            'appointment_time': '09:00',
+            'reason': 'Routine Checkup'
+        }, format='json')
+        appt_id = book_res.data['id']
 
+        # Cancel appointment
+        cancel_res = self.client.post(f'/api/appointments/{appt_id}/cancel/')
+        self.assertEqual(cancel_res.status_code, status.HTTP_200_OK)
+
+        # Check outbox has email sent to patient login email
+        patient_cancel_emails = [m for m in mail.outbox if self.patient1_user.email in m.to]
+        self.assertTrue(len(patient_cancel_emails) >= 1)
+        email = patient_cancel_emails[-1]
+        self.assertIn('Appointment Cancelled', email.subject)
+        self.assertIn(self.patient1_user.email, email.body)
+
+        # 2. Test Completion Email
+        mail.outbox = []
+        book2_res = self.client.post('/api/appointments/', data={
+            'slot': str(self.slot.id),
+            'date': str(self.next_monday),
+            'appointment_time': '09:30',
+            'reason': 'Consultation'
+        }, format='json')
+        appt2_id = book2_res.data['id']
+
+        # Doctor confirms appointment
+        self.client.force_authenticate(user=self.doctor_user)
+        self.client.post(f'/api/appointments/{appt2_id}/confirm/')
+
+        # Doctor marks completed
+        complete_res = self.client.post(f'/api/appointments/{appt2_id}/complete/')
+        self.assertEqual(complete_res.status_code, status.HTTP_200_OK)
+
+        # Check completion email sent to patient login email
+        patient_comp_emails = [m for m in mail.outbox if self.patient1_user.email in m.to]
+        self.assertTrue(len(patient_comp_emails) >= 1)
+        comp_email = patient_comp_emails[-1]
+        self.assertIn('Consultation Completed', comp_email.subject)
+        self.assertIn(self.patient1_user.email, comp_email.body)
 

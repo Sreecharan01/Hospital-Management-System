@@ -53,7 +53,7 @@ from .serializers import (
     SpecialtyWriteSerializer,
     UserSerializer,
 )
-from .tasks import send_appointment_email, send_bulk_announcement
+from .tasks import send_appointment_email, send_bulk_announcement, safe_dispatch_email
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -661,6 +661,75 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 ),
             )
 
+        # Email notifications to Patient and Doctor on cancellation
+        doctor_name = doctor_user.get_full_name() or doctor_user.email
+        patient_name = patient_user.get_full_name() or patient_user.email
+        specialty_name = (
+            appointment.slot.doctor.specialty.name
+            if appointment.slot.doctor.specialty
+            else "General Medicine"
+        )
+        time_str = (
+            appointment.appointment_time.strftime("%H:%M")
+            if appointment.appointment_time
+            else appointment.slot.start_time.strftime("%H:%M")
+        )
+
+        if is_paid and hasattr(appointment, "payment") and appointment.payment:
+            orig_fee = appointment.payment.amount
+            retained_fee = orig_fee - refund_amt
+            refund_info = (
+                f"PAYMENT & 50% REFUND DETAILS:\n"
+                f"• Original Consultation Fee Paid: ₹{orig_fee}\n"
+                f"• Eligible 50% Refund Amount: ₹{refund_amt} (Pending Admin Approval)\n"
+                f"• Hospital Retained Fee (50%): ₹{retained_fee}\n"
+                f"• Status: 50% refund request submitted to hospital admin. Once approved, it will be credited to your original payment method.\n"
+            )
+        else:
+            refund_info = "PAYMENT STATUS: Unpaid (No refund applicable).\n"
+
+        patient_cancel_body = (
+            f"Dear {patient_name},\n\n"
+            f"This email confirms that your appointment at CityCare Central Hospital has been CANCELLED.\n\n"
+            f"APPOINTMENT & ACCOUNT DETAILS:\n"
+            f"• Logged-in Account Email: {patient_user.email}\n"
+            f"• Patient Name: {patient_name}\n"
+            f"• Consulting Doctor: Dr. {doctor_name} ({specialty_name})\n"
+            f"• Appointment Date: {appointment.date}\n"
+            f"• Appointment Time: {time_str}\n"
+            f"• Appointment Status: CANCELLED\n\n"
+            f"{refund_info}\n"
+            f"Note: This notification has been delivered directly to the account email you logged in with: {patient_user.email}.\n\n"
+            f"If you wish to reschedule or book another consultation, please log in to your patient dashboard:\n"
+            f"https://hospital-management-system-alpha-olive.vercel.app/\n\n"
+            f"Warm regards,\n"
+            f"CityCare Central Hospital Team\n"
+            f"Helpline: +91 1800-123-4567 | Email: care@citycarehospital.in\n"
+        )
+
+        doctor_cancel_body = (
+            f"Dear Dr. {doctor_name},\n\n"
+            f"An appointment on your schedule has been CANCELLED:\n\n"
+            f"• Patient Name: {patient_name}\n"
+            f"• Patient Account Email: {patient_user.email}\n"
+            f"• Date: {appointment.date}\n"
+            f"• Time: {time_str}\n\n"
+            f"The slot is now reopened and available for other patients.\n\n"
+            f"Regards,\n"
+            f"CityCare Central Hospital Scheduling Desk\n"
+        )
+
+        safe_dispatch_email(
+            patient_user.email,
+            "Appointment Cancelled – CityCare Central Hospital",
+            patient_cancel_body,
+        )
+        safe_dispatch_email(
+            doctor_user.email,
+            f"Appointment Cancelled: {patient_name} – CityCare Central Hospital",
+            doctor_cancel_body,
+        )
+
         return Response(AppointmentSerializer(appointment).data)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdminRole], url_path="process-refund")
@@ -699,6 +768,33 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 f"Your 50% refund of ₹{refund_amount} for appointment with Dr. {doctor_name} "
                 f"has been approved by Admin and initiated. (Refund Ref: {refund_txn_id})"
             ),
+        )
+
+        # Email patient with 50% refund details and account login email
+        patient_name = appointment.patient.user.get_full_name() or appointment.patient.user.email
+        refund_email_body = (
+            f"Dear {patient_name},\n\n"
+            f"Your 50% cancellation refund has been APPROVED and INITIATED by CityCare Hospital administration.\n\n"
+            f"REFUND TRANSACTION SUMMARY:\n"
+            f"• Logged-in Account Email: {appointment.patient.user.email}\n"
+            f"• Patient Name: {patient_name}\n"
+            f"• Consulting Doctor: Dr. {doctor_name}\n"
+            f"• Original Consultation Fee Paid: ₹{payment.amount}\n"
+            f"• Approved 50% Refund Amount: ₹{refund_amount}\n"
+            f"• Hospital Cancellation Fee (50%): ₹{payment.amount - refund_amount}\n"
+            f"• Refund Reference ID: {refund_txn_id}\n"
+            f"• Initiation Date: {payment.refunded_at.strftime('%Y-%m-%d %H:%M UTC')}\n\n"
+            f"The refund of ₹{refund_amount} has been dispatched to your original payment method.\n"
+            f"Depending on your bank or payment provider, it typically reflects within 2 to 5 business days.\n\n"
+            f"This email was sent to your registered account: {appointment.patient.user.email}.\n\n"
+            f"Thank you,\n"
+            f"CityCare Central Hospital Billing & Administration\n"
+            f"Email: billing@citycarehospital.in\n"
+        )
+        safe_dispatch_email(
+            appointment.patient.user.email,
+            f"50% Refund Approved & Initiated (Ref: {refund_txn_id}) – CityCare Central Hospital",
+            refund_email_body,
         )
 
         return Response({
@@ -860,6 +956,66 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 f"The patient attended successfully. "
                 f"A medical record may be created by your doctor."
             ),
+        )
+
+        # Email notifications to Patient and Doctor on completion
+        doctor_name = appointment.slot.doctor.user.get_full_name() or appointment.slot.doctor.user.email
+        patient_name = appointment.patient.user.get_full_name() or appointment.patient.user.email
+        specialty_name = (
+            appointment.slot.doctor.specialty.name
+            if appointment.slot.doctor.specialty
+            else "General Medicine"
+        )
+        time_str = (
+            appointment.appointment_time.strftime("%H:%M")
+            if appointment.appointment_time
+            else appointment.slot.start_time.strftime("%H:%M")
+        )
+
+        patient_complete_body = (
+            f"Dear {patient_name},\n\n"
+            f"Thank you for attending your consultation today at CityCare Central Hospital.\n"
+            f"Your appointment has been officially marked as COMPLETED.\n\n"
+            f"CONSULTATION & ACCOUNT SUMMARY:\n"
+            f"• Logged-in Account Email: {appointment.patient.user.email}\n"
+            f"• Patient Name: {patient_name}\n"
+            f"• Consulting Doctor: Dr. {doctor_name} ({specialty_name})\n"
+            f"• Date: {appointment.date}\n"
+            f"• Time: {time_str}\n"
+            f"• Status: COMPLETED / ATTENDED\n\n"
+            f"MEDICAL RECORDS & PRESCRIPTIONS:\n"
+            f"Your consulting doctor may have documented clinical findings, diagnoses, or prescriptions for this consultation.\n"
+            f"You can view and download all your medical records at any time by logging in with your account email: {appointment.patient.user.email}.\n\n"
+            f"OFFICIAL RECEIPT:\n"
+            f"Your official receipt can be viewed or printed directly from 'My Appointments' in your dashboard.\n\n"
+            f"Note: This confirmation was delivered to your registered login email: {appointment.patient.user.email}.\n\n"
+            f"We wish you good health and a speedy recovery!\n\n"
+            f"Warm regards,\n"
+            f"CityCare Central Hospital Healthcare Team\n"
+            f"Helpline: +91 1800-123-4567 | Email: care@citycarehospital.in\n"
+            f"Portal: https://hospital-management-system-alpha-olive.vercel.app/\n"
+        )
+
+        doctor_complete_body = (
+            f"Dear Dr. {doctor_name},\n\n"
+            f"You have marked the appointment for {patient_name} (Account: {appointment.patient.user.email}) as COMPLETED.\n\n"
+            f"• Date: {appointment.date}\n"
+            f"• Time: {time_str}\n\n"
+            f"You can add or update clinical records, notes, and prescriptions for this patient from your Doctor Dashboard:\n"
+            f"https://hospital-management-system-alpha-olive.vercel.app/doctor/dashboard\n\n"
+            f"Thank you for your service,\n"
+            f"CityCare Central Hospital Administration\n"
+        )
+
+        safe_dispatch_email(
+            appointment.patient.user.email,
+            "Consultation Completed – CityCare Central Hospital",
+            patient_complete_body,
+        )
+        safe_dispatch_email(
+            appointment.slot.doctor.user.email,
+            f"Consultation Completed: {patient_name} – CityCare Central Hospital",
+            doctor_complete_body,
         )
 
         return Response(AppointmentSerializer(appointment).data)
